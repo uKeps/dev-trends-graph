@@ -1,0 +1,68 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+  background: #020617;
+  color: #f1f5f9;
+  overflow: hidden;
+}
+
+/* Scrollbar estilizada para painéis */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.5);
+  border-radius: 2px;
+}
+
+/* React Flow overrides — dark mode */
+.react-flow__edge-path {
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+.react-flow__controls button {
+  background: rgba(10, 10, 20, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #9ca3af !important;
+  transition: all 0.2s ease;
+}
+
+.react-flow__controls button:hover {
+  background: rgba(124, 58, 237, 0.2) !important;
+  color: #c4b5fd !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(2, 6, 23, 0.75) !important;
+}
+
+.react-flow__panel {
+  margin: 0 !important;
+}
+
+/* Animação de pulso para nós com alto hype score */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Animação de aresta animada */
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5;
+  animation: dashdraw 0.5s linear infinite;
+}
+
+@keyframes dashdraw {
+  from { stroke-dashoffset: 10; }
+  to   { stroke-dashoffset: 0;  }
+}
