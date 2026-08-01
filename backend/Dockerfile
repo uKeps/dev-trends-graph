@@ -8,7 +8,7 @@
 # =============================================================
 
 # ---- STAGE 1: Build -----------------------------------------
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
 LABEL stage="builder"
 
