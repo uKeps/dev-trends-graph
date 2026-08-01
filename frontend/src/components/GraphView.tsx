@@ -32,6 +32,7 @@ import "@xyflow/react/dist/style.css";
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ApiNode {
+  [key: string]: unknown;
   id: string;
   label: string;
   category: string;
