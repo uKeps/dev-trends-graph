@@ -74,51 +74,60 @@ public class GraphController {
                     .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
         }
 
-        List<Node> nodes = nodeRepository.findNodesSince(days);
-        List<Edge> edges = edgeRepository.findEdgesSince(days);
+        try {
+            List<Node> nodes = nodeRepository.findNodesSince(days);
+            List<Edge> edges = edgeRepository.findEdgesSince(days);
 
-        // Formata nós no padrão React Flow
-        List<Map<String, Object>> nodeList = nodes.stream()
-                .map(n -> {
-                    Map<String, Object> node = new LinkedHashMap<>();
-                    node.put("id", n.getId().toString());
-                    node.put("label", n.getLabel());
-                    node.put("category", n.getCategory());
-                    node.put("hypeScore", n.getHypeScore());
-                    node.put("mentionCount", n.getMentionCount());
-                    node.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
-                    node.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
-                    return node;
-                })
-                .toList();
+            // Formata nós no padrão React Flow
+            List<Map<String, Object>> nodeList = nodes.stream()
+                    .map(n -> {
+                        Map<String, Object> node = new LinkedHashMap<>();
+                        node.put("id", n.getId().toString());
+                        node.put("label", n.getLabel());
+                        node.put("category", n.getCategory());
+                        node.put("hypeScore", n.getHypeScore());
+                        node.put("mentionCount", n.getMentionCount());
+                        node.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
+                        node.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
+                        return node;
+                    })
+                    .toList();
 
-        // Formata arestas no padrão React Flow
-        List<Map<String, Object>> edgeList = edges.stream()
-                .map(e -> {
-                    Map<String, Object> edge = new LinkedHashMap<>();
-                    edge.put("id", e.getId().toString());
-                    edge.put("source", e.getSourceNodeId().toString());
-                    edge.put("target", e.getTargetNodeId().toString());
-                    edge.put("sourceLabel", e.getSourceLabel());
-                    edge.put("targetLabel", e.getTargetLabel());
-                    edge.put("label", e.getRelationType());
-                    edge.put("relationType", e.getRelationType());
-                    edge.put("weight", e.getWeight());
-                    return edge;
-                })
-                .toList();
+            // Formata arestas no padrão React Flow
+            List<Map<String, Object>> edgeList = edges.stream()
+                    .map(e -> {
+                        Map<String, Object> edge = new LinkedHashMap<>();
+                        edge.put("id", e.getId().toString());
+                        edge.put("source", e.getSourceNodeId().toString());
+                        edge.put("target", e.getTargetNodeId().toString());
+                        edge.put("sourceLabel", e.getSourceLabel());
+                        edge.put("targetLabel", e.getTargetLabel());
+                        edge.put("label", e.getRelationType());
+                        edge.put("relationType", e.getRelationType());
+                        edge.put("weight", e.getWeight());
+                        return edge;
+                    })
+                    .toList();
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("nodes", nodeList);
-        response.put("edges", edgeList);
-        response.put("meta", Map.of(
-                "days", days,
-                "nodeCount", nodeList.size(),
-                "edgeCount", edgeList.size(),
-                "generatedAt", Instant.now().toString()
-        ));
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("nodes", nodeList);
+            response.put("edges", edgeList);
+            response.put("meta", Map.of(
+                    "days", days,
+                    "nodeCount", nodeList.size(),
+                    "edgeCount", edgeList.size(),
+                    "generatedAt", Instant.now().toString()
+            ));
 
-        return ResponseEntity.ok(response);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Falha ao consultar banco de dados Supabase.",
+                    "message", e.getMessage() != null ? e.getMessage() : "Erro interno no servidor",
+                    "nodes", List.of(),
+                    "edges", List.of()
+            ));
+        }
     }
 
     // =========================================================
