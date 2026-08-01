@@ -1,0 +1,173 @@
+name: CI/CD — Dev Trends Graph
+
+# =============================================================
+# Trigger: push na branch main
+# =============================================================
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Variáveis globais de ambiente
+env:
+  JAVA_VERSION: "21"
+  JAVA_DISTRIBUTION: "temurin"
+  NODE_VERSION: "20"
+
+# =============================================================
+# JOB 1: Backend Java — Testes + Deploy no Render
+# =============================================================
+jobs:
+  backend-test-and-deploy:
+    name: 🔧 Backend Java — Test & Deploy (Render)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # 1. Checkout do código
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configura JDK 21 (Temurin = Eclipse Adoptium)
+      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      # 3. Cache do repositório Maven local para builds mais rápidos
+      - name: 📦 Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # 4. Compila e executa os testes unitários
+      - name: 🧪 Run tests with Maven
+        run: mvn verify --batch-mode --no-transfer-progress
+        env:
+          # Fornece variáveis mínimas para os testes não falharem por config ausente
+          DATABASE_URL: "jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1"
+          DB_PASSWORD: "test"
+          SPRING_PROFILES_ACTIVE: "test"
+
+      # 5. Upload do relatório de testes como artefato do GitHub Actions
+      - name: 📊 Upload test reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 7
+
+      # 6. Aciona o webhook de deploy do Render (apenas em push na main)
+      # Configure RENDER_DEPLOY_HOOK_URL nos Secrets do repositório GitHub:
+      # Settings → Secrets and variables → Actions → New repository secret
+      - name: 🚀 Trigger Render Deploy
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "Acionando deploy no Render..."
+          HTTP_STATUS=$(curl --silent --output /dev/null \
+            --write-out "%{http_code}" \
+            --max-time 30 \
+            --request POST \
+            "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          
+          if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+            echo "✅ Deploy no Render acionado com sucesso (HTTP $HTTP_STATUS)"
+          else
+            echo "❌ Falha ao acionar deploy no Render (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+
+  # ===========================================================
+  # JOB 2: Frontend Next.js — Build + Deploy na Vercel
+  # ===========================================================
+  frontend-build-and-deploy:
+    name: 🎨 Frontend Next.js — Build & Deploy (Vercel)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      # 1. Checkout do código
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configura Node.js
+      - name: 🟢 Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # 3. Instala dependências
+      - name: 📦 Install dependencies
+        run: npm ci --prefer-offline
+
+      # 4. Type-check TypeScript
+      - name: 🔍 TypeScript type check
+        run: npm run type-check
+
+      # 5. Linting
+      - name: 🧹 Lint
+        run: npm run lint
+
+      # 6. Build de produção do Next.js
+      - name: 🏗️ Build Next.js
+        run: npm run build
+        env:
+          # URL da API do backend no Render (configure nos Secrets do GitHub)
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      # 7. Deploy na Vercel (apenas em push na main)
+      # Configure estes Secrets no repositório GitHub:
+      #   VERCEL_TOKEN        → Token da conta Vercel (Settings → Tokens)
+      #   VERCEL_ORG_ID       → ID da organização (vercel.json ou CLI: vercel whoami)
+      #   VERCEL_PROJECT_ID   → ID do projeto (vercel.json ou painel Vercel)
+      - name: 🚀 Deploy to Vercel
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          vercel-args: "--prod"
+
+  # ===========================================================
+  # JOB 3: Notificação de status (opcional, mas útil)
+  # ===========================================================
+  notify-status:
+    name: 📣 Notify Deploy Status
+    runs-on: ubuntu-latest
+    needs: [backend-test-and-deploy, frontend-build-and-deploy]
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: ✅ Pipeline completed
+        run: |
+          BACKEND_STATUS="${{ needs.backend-test-and-deploy.result }}"
+          FRONTEND_STATUS="${{ needs.frontend-build-and-deploy.result }}"
+          
+          echo "============================================"
+          echo "  Dev Trends Graph — Deploy Summary"
+          echo "============================================"
+          echo "  Backend  (Render): $BACKEND_STATUS"
+          echo "  Frontend (Vercel): $FRONTEND_STATUS"
+          echo "============================================"
+          
+          if [ "$BACKEND_STATUS" = "success" ] && [ "$FRONTEND_STATUS" = "success" ]; then
+            echo "🎉 Deploy completo com sucesso!"
+          else
+            echo "⚠️  Deploy concluído com falhas. Verifique os logs acima."
+            exit 1
+          fi
