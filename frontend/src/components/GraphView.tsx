@@ -290,15 +290,31 @@ export default function GraphView() {
   const [selectedNode, setSelectedNode] = useState<ApiNode | null>(null);
   const [stats, setStats] = useState({ nodeCount: 0, edgeCount: 0 });
 
-  // ── Posicionamento automático em layout radial/força ──────────────────────
+  // ── Posicionamento automático em layout de anéis expansivos / espiral ──────
   const layoutNodes = useCallback((apiNodes: ApiNode[]): Node[] => {
     const count = apiNodes.length;
-    return apiNodes.map((n, i) => {
-      // Layout em espiral com hype_score influenciando a posição central
-      const angle = (i / count) * 2 * Math.PI;
-      const radius = 280 + (10 - Math.min(n.hypeScore, 10)) * 20;
-      const x = Math.cos(angle) * radius + 500;
-      const y = Math.sin(angle) * radius + 350;
+    if (count === 0) return [];
+
+    // Agrupa ou ordena por hypeScore para colocar nós mais relevantes no centro/anéis internos
+    const sorted = [...apiNodes].sort((a, b) => b.hypeScore - a.hypeScore);
+
+    // Configuração de anéis concêntricos
+    const nodesPerRing = 12; // Máximo de nós por anel antes de abrir outro anel
+
+    return sorted.map((n, i) => {
+      const ringIndex = Math.floor(i / nodesPerRing); // 0 = anel interno, 1 = médio, 2 = externo...
+      const nodeInRingIndex = i % nodesPerRing;
+      const totalInThisRing = Math.min(nodesPerRing, count - ringIndex * nodesPerRing);
+
+      // Raio base muito maior (cresce 300px a cada anel)
+      const baseRadius = 450 + ringIndex * 320;
+      
+      // Offset de ângulo alternado por anel para desencontrar os nós
+      const angleOffset = (ringIndex % 2 === 1) ? Math.PI / totalInThisRing : 0;
+      const angle = (nodeInRingIndex / totalInThisRing) * 2 * Math.PI + angleOffset;
+
+      const x = Math.cos(angle) * baseRadius + 700;
+      const y = Math.sin(angle) * baseRadius + 450;
 
       return {
         id: n.id,
@@ -317,30 +333,30 @@ export default function GraphView() {
       source: e.source,
       target: e.target,
       label: e.relationType,
-      type: "smoothstep",
-      animated: e.weight > 2,
+      type: "bezier", // Curvas orgânicas suaves evitam retas/ângulos retos empilhados
+      animated: e.weight > 1,
       markerEnd: {
         type: MarkerType.ArrowClosed,
         color: RELATION_COLORS[e.relationType] ?? "#6b7280",
-        width: 16,
-        height: 16,
+        width: 14,
+        height: 14,
       },
       style: {
         stroke: RELATION_COLORS[e.relationType] ?? "#6b7280",
-        strokeWidth: Math.min(e.weight + 1, 5),
-        opacity: 0.8,
+        strokeWidth: Math.min(e.weight + 1, 4),
+        opacity: 0.75,
       },
       labelStyle: {
-        fill: "#9ca3af",
-        fontSize: 9,
+        fill: "#cbd5e1",
+        fontSize: 10,
         fontWeight: 600,
         fontFamily: "'Inter', sans-serif",
       },
       labelBgStyle: {
-        fill: "rgba(10,10,20,0.85)",
+        fill: "rgba(15, 23, 42, 0.9)",
         rx: 4,
       },
-      labelBgPadding: [4, 6] as [number, number],
+      labelBgPadding: [6, 4] as [number, number],
     }));
   }, []);
 
