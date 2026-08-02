@@ -68,14 +68,14 @@ interface GraphData {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS: Record<string, { bg: string; border: string; text: string; glow: string; badgeBg: string }> = {
-  Model:     { bg: "#1e112a", border: "#a855f7", text: "#e9d5ff", glow: "rgba(168,85,247,0.5)", badgeBg: "rgba(168,85,247,0.2)" },
-  Framework: { bg: "#062319", border: "#10b981", text: "#a7f3d0", glow: "rgba(16,185,129,0.5)", badgeBg: "rgba(16,185,129,0.2)" },
+  Model:     { bg: "#1e112a", border: "#a855f7", text: "#e9d5ff", glow: "rgba(168,85,247,0.4)", badgeBg: "rgba(168,85,247,0.2)" },
+  Framework: { bg: "#062319", border: "#10b981", text: "#a7f3d0", glow: "rgba(16,185,129,0.4)", badgeBg: "rgba(16,185,129,0.2)" },
   Tool:      { bg: "#16230a", border: "#84cc16", text: "#d9f99d", glow: "rgba(132,204,22,0.4)",  badgeBg: "rgba(132,204,22,0.2)"  },
-  Language:  { bg: "#170f38", border: "#6366f1", text: "#c7d2fe", glow: "rgba(99,102,241,0.5)",  badgeBg: "rgba(99,102,241,0.2)"  },
-  Platform:  { bg: "#0b192e", border: "#0284c7", text: "#bae6fd", glow: "rgba(2,132,199,0.5)",  badgeBg: "rgba(2,132,199,0.2)"  },
-  Concept:   { bg: "#271507", border: "#f59e0b", text: "#fde68a", glow: "rgba(245,158,11,0.5)", badgeBg: "rgba(245,158,11,0.2)" },
-  Company:   { bg: "#260a0a", border: "#ef4444", text: "#fecaca", glow: "rgba(239,68,68,0.5)",  badgeBg: "rgba(239,68,68,0.2)"  },
-  Technology:{ bg: "#061f26", border: "#06b6d4", text: "#c5f6fa", glow: "rgba(6,182,212,0.5)",  badgeBg: "rgba(6,182,212,0.2)"  },
+  Language:  { bg: "#170f38", border: "#6366f1", text: "#c7d2fe", glow: "rgba(99,102,241,0.4)",  badgeBg: "rgba(99,102,241,0.2)"  },
+  Platform:  { bg: "#0b192e", border: "#0284c7", text: "#bae6fd", glow: "rgba(2,132,199,0.4)",  badgeBg: "rgba(2,132,199,0.2)"  },
+  Concept:   { bg: "#271507", border: "#f59e0b", text: "#fde68a", glow: "rgba(245,158,11,0.4)", badgeBg: "rgba(245,158,11,0.2)" },
+  Company:   { bg: "#260a0a", border: "#ef4444", text: "#fecaca", glow: "rgba(239,68,68,0.4)",  badgeBg: "rgba(239,68,68,0.2)"  },
+  Technology:{ bg: "#061f26", border: "#06b6d4", text: "#c5f6fa", glow: "rgba(6,182,212,0.4)",  badgeBg: "rgba(6,182,212,0.2)"  },
   default:   { bg: "#0f172a", border: "#475569", text: "#cbd5e1", glow: "rgba(71,85,105,0.4)", badgeBg: "rgba(71,85,105,0.2)" },
 };
 
@@ -90,37 +90,44 @@ const RELATION_COLORS: Record<string, string> = {
   RELATED_TO:       "#64748b",
 };
 
+// Order de exibição das colunas no canvas
+const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
+
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE: Nó customizado
+// COMPONENTE: Nó customizado (Cards limpos)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean } }) {
+function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHovered?: boolean; onHover?: (id: string | null) => void } }) {
   const colors = CATEGORY_COLORS[data.category] ?? CATEGORY_COLORS.default;
   const isDimmed = data.isHighlighted === false;
 
   return (
     <div
+      onMouseEnter={() => data.onHover?.(data.id)}
+      onMouseLeave={() => data.onHover?.(null)}
       style={{
         background: colors.bg,
         border: `2px solid ${colors.border}`,
-        borderRadius: "12px",
-        padding: "12px 16px",
-        minWidth: "170px",
-        maxWidth: "220px",
-        boxShadow: isDimmed ? "none" : `0 0 16px ${colors.glow}, 0 4px 12px rgba(0,0,0,0.6)`,
-        opacity: isDimmed ? 0.25 : 1,
+        borderRadius: "14px",
+        padding: "14px 18px",
+        width: "240px",
+        boxShadow: data.isHovered
+          ? `0 0 24px ${colors.glow}, 0 8px 20px rgba(0,0,0,0.8)`
+          : isDimmed
+          ? "none"
+          : `0 4px 14px rgba(0,0,0,0.5)`,
+        opacity: isDimmed ? 0.2 : 1,
+        transform: data.isHovered ? "scale(1.04)" : "scale(1)",
         cursor: "pointer",
-        transition: "all 0.25s ease",
+        transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
         fontFamily: "'Inter', sans-serif",
         position: "relative",
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: colors.border, width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Bottom} style={{ background: colors.border, width: 8, height: 8 }} />
       <Handle type="target" position={Position.Left} style={{ background: colors.border, width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ background: colors.border, width: 8, height: 8 }} />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
         <span
           style={{
             fontSize: "10px",
@@ -129,8 +136,8 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean } }) {
             textTransform: "uppercase",
             color: colors.border,
             background: colors.badgeBg,
-            padding: "2px 6px",
-            borderRadius: "4px",
+            padding: "3px 8px",
+            borderRadius: "6px",
           }}
         >
           {data.category}
@@ -142,7 +149,7 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean } }) {
 
       <div
         style={{
-          fontSize: "14px",
+          fontSize: "15px",
           fontWeight: 700,
           color: colors.text,
           lineHeight: 1.3,
@@ -152,9 +159,9 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean } }) {
         {data.label}
       </div>
 
-      <div style={{ marginTop: "8px", fontSize: "10px", color: "#94a3b8", display: "flex", justifyContent: "space-between" }}>
-        <span>Menções: {data.mentionCount}×</span>
-        <span>📚 Para estudo</span>
+      <div style={{ marginTop: "10px", fontSize: "11px", color: "#94a3b8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>{data.mentionCount}× discussões</span>
+        <span style={{ color: colors.border, fontWeight: 600, fontSize: "10px" }}>Detalhes →</span>
       </div>
     </div>
   );
@@ -178,61 +185,49 @@ export default function GraphView() {
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
   const [selectedNode, setSelectedNode] = useState<ApiNode | null>(null);
-  
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [showAllEdges, setShowAllEdges] = useState<boolean>(false); // Padrão: sem teia poluída
+
   // Filtros de UI
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [minHype, setMinHype] = useState<number>(1.0);
-  const [viewMode, setViewMode] = useState<"graph" | "cards">("graph");
+  const [viewMode, setViewMode] = useState<"columns" | "cards">("columns");
 
-  // ── Layout Clusterizado por Categoria (Organizado e Espaçado) ──────────────
-  const layoutNodesByCluster = useCallback((apiNodes: ApiNode[]): Node[] => {
+  // ── Layout em Colunas de Categoria (Espaçamento Rigoroso Sem Sobreposição) ──
+  const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
     if (apiNodes.length === 0) return [];
 
     // Agrupa por categoria
-    const categoryClusters: Record<string, ApiNode[]> = {};
+    const categoryMap: Record<string, ApiNode[]> = {};
     apiNodes.forEach((n) => {
-      const cat = n.category || "Technology";
-      if (!categoryClusters[cat]) categoryClusters[cat] = [];
-      categoryClusters[cat].push(n);
+      const cat = n.category || "Concept";
+      if (!categoryMap[cat]) categoryMap[cat] = [];
+      categoryMap[cat].push(n);
     });
 
-    const categoryKeys = Object.keys(categoryClusters);
-    const clusterPositions: Record<string, { x: number; y: number }> = {
-      Model:     { x: 0,    y: 0 },
-      Framework: { x: 750,  y: 0 },
-      Tool:      { x: 1500, y: 0 },
-      Language:  { x: 0,    y: 650 },
-      Platform:  { x: 750,  y: 650 },
-      Concept:   { x: 1500, y: 650 },
-      Company:   { x: 2250, y: 0 },
-      Technology:{ x: 2250, y: 650 },
-    };
-
     const resultNodes: Node[] = [];
+    const columnWidth = 340; // Espaço horizontal seguro entre colunas
 
-    categoryKeys.forEach((catKey, catIdx) => {
-      const clusterNodes = categoryClusters[catKey];
-      // Posição base do cluster ou cálculo em grid
-      const basePos = clusterPositions[catKey] || {
-        x: (catIdx % 3) * 750,
-        y: Math.floor(catIdx / 3) * 650,
-      };
+    COLUMN_ORDER.forEach((catKey, colIdx) => {
+      const categoryNodes = categoryMap[catKey] || [];
+      // Ordena por hype score dentro da coluna
+      categoryNodes.sort((a, b) => b.hypeScore - a.hypeScore);
 
-      // Dispoe os nós dentro do cluster em uma mini-grade espaçada (2 colunas)
-      const cols = 2;
-      clusterNodes.forEach((node, idx) => {
-        const col = idx % cols;
-        const row = Math.floor(idx / cols);
+      const x = colIdx * columnWidth;
 
-        const x = basePos.x + col * 260;
-        const y = basePos.y + row * 160;
+      categoryNodes.forEach((node, rowIdx) => {
+        const y = rowIdx * 150 + 60; // 150px de distância vertical garante ZERO sobreposição
 
         resultNodes.push({
           id: node.id,
           type: "techNode",
           position: { x, y },
-          data: node,
+          data: {
+            ...node,
+            isHovered: hoverId === node.id,
+            onHover: (id: string | null) => setHoveredNodeId(id),
+          },
           draggable: true,
         });
       });
@@ -241,38 +236,50 @@ export default function GraphView() {
     return resultNodes;
   }, []);
 
-  // ── Formata as arestas para React Flow ────────────────────────────────────
-  const buildEdges = useCallback((apiEdges: ApiEdge[]): Edge[] => {
-    return apiEdges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.relationType,
-      type: "bezier",
-      animated: e.weight > 1,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: RELATION_COLORS[e.relationType] ?? "#64748b",
-        width: 14,
-        height: 14,
-      },
-      style: {
-        stroke: RELATION_COLORS[e.relationType] ?? "#64748b",
-        strokeWidth: Math.min(e.weight + 1, 4),
-        opacity: 0.7,
-      },
-      labelStyle: {
-        fill: "#e2e8f0",
-        fontSize: 10,
-        fontWeight: 600,
-        fontFamily: "'Inter', sans-serif",
-      },
-      labelBgStyle: {
-        fill: "rgba(15, 23, 42, 0.95)",
-        rx: 4,
-      },
-      labelBgPadding: [6, 4] as [number, number],
-    }));
+  // ── Formata as arestas (Exibe linhas de forma limpa ou sob hover) ─────────
+  const buildEdges = useCallback((apiEdges: ApiEdge[], activeHoverId: string | null, forceShowAll: boolean): Edge[] => {
+    return apiEdges
+      .filter((e) => {
+        if (forceShowAll) return true;
+        // Se a teia estiver desativada, mostra linhas APENAS do nó que o usuário passou o mouse por cima
+        if (activeHoverId) {
+          return e.source === activeHoverId || e.target === activeHoverId;
+        }
+        return false;
+      })
+      .map((e) => {
+        const isHoverConnected = activeHoverId && (e.source === activeHoverId || e.target === activeHoverId);
+        return {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.relationType,
+          type: "bezier",
+          animated: true,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: RELATION_COLORS[e.relationType] ?? "#64748b",
+            width: 16,
+            height: 16,
+          },
+          style: {
+            stroke: RELATION_COLORS[e.relationType] ?? "#64748b",
+            strokeWidth: isHoverConnected ? 3.5 : 2,
+            opacity: isHoverConnected ? 1 : 0.6,
+          },
+          labelStyle: {
+            fill: "#f8fafc",
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: "'Inter', sans-serif",
+          },
+          labelBgStyle: {
+            fill: "rgba(15, 23, 42, 0.95)",
+            rx: 6,
+          },
+          labelBgPadding: [8, 5] as [number, number],
+        };
+      });
   }, []);
 
   // ── Busca dados da API ────────────────────────────────────────────────────
@@ -281,26 +288,39 @@ export default function GraphView() {
     setError(null);
     try {
       const graphRes = await fetch(`${API_BASE_URL}/api/v1/graph?days=${d}`);
-
       if (!graphRes.ok) throw new Error(`API retornou status ${graphRes.status}`);
 
       const graphData: GraphData = await graphRes.json();
-      
       setRawApiNodes(graphData.nodes || []);
       setRawApiEdges(graphData.edges || []);
       
-      setNodes(layoutNodesByCluster(graphData.nodes || []));
-      setEdges(buildEdges(graphData.edges || []));
+      setNodes(layoutNodesByColumns(graphData.nodes || [], null));
+      setEdges(buildEdges(graphData.edges || [], null, showAllEdges));
     } catch (err: any) {
-      setError(err.message ?? "Erro ao carregar o grafo de tendências.");
+      setError(err.message ?? "Erro ao carregar os dados de estudo.");
     } finally {
       setLoading(false);
     }
-  }, [layoutNodesByCluster, buildEdges, setNodes, setEdges]);
+  }, [layoutNodesByColumns, buildEdges, setNodes, setEdges, showAllEdges]);
 
   useEffect(() => {
     fetchGraphData(days);
   }, [days, fetchGraphData]);
+
+  // Recalcula nós e arestas ao passar o mouse por cima de um nó ou mudar botão de teia
+  useEffect(() => {
+    setNodes((prev) =>
+      prev.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          isHovered: hoveredNodeId === n.id,
+          onHover: (id: string | null) => setHoveredNodeId(id),
+        },
+      }))
+    );
+    setEdges(buildEdges(rawApiEdges, hoveredNodeId, showAllEdges));
+  }, [hoveredNodeId, showAllEdges, rawApiEdges, buildEdges, setNodes, setEdges]);
 
   // ── Aplicar Filtros (Busca, Categoria, Hype) ──────────────────────────────
   const filteredApiNodes = useMemo(() => {
@@ -312,7 +332,7 @@ export default function GraphView() {
     });
   }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
 
-  // Atualiza destaque no Grafo quando os filtros mudam
+  // Atualiza destaque
   useEffect(() => {
     const validIds = new Set(filteredApiNodes.map((n) => n.id));
     setNodes((prevNodes) =>
@@ -335,12 +355,6 @@ export default function GraphView() {
     setSelectedNode(node.data as ApiNode);
   }, []);
 
-  // Lista de categorias presentes
-  const availableCategories = useMemo(() => {
-    const cats = new Set(rawApiNodes.map((n) => n.category));
-    return ["ALL", ...Array.from(cats)];
-  }, [rawApiNodes]);
-
   // ── Renderização ──────────────────────────────────────────────────────────
   return (
     <div
@@ -354,7 +368,7 @@ export default function GraphView() {
         overflow: "hidden",
       }}
     >
-      {/* ── HEADER DE CONTROLES E FILTROS ── */}
+      {/* ── HEADER CLEAN E CONTROLES DE FILTRO ── */}
       <div
         style={{
           position: "absolute",
@@ -368,11 +382,11 @@ export default function GraphView() {
           padding: "12px 24px",
           display: "flex",
           flexDirection: "column",
-          gap: "12px",
+          gap: "10px",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
-          {/* Título & Logo */}
+          {/* Logo & Título */}
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div
               style={{
@@ -386,19 +400,19 @@ export default function GraphView() {
                 fontSize: "18px",
               }}
             >
-              🎓
+              🚀
             </div>
             <div>
               <h1 style={{ fontSize: "16px", fontWeight: 800, margin: 0, color: "#f8fafc" }}>
-                Hub de Estudos Dev & IA
+                Dev Trends & Study Hub
               </h1>
               <p style={{ fontSize: "11px", color: "#94a3b8", margin: 0 }}>
-                Tendências e Tecnologias de Aprendizado em Grafos
+                Mapeamento Limpo de Tecnologias & Conteúdos de Estudo
               </p>
             </div>
           </div>
 
-          {/* Busca & Modos de Visualização */}
+          {/* Busca & Controles principais */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* Input de Busca */}
             <div style={{ position: "relative" }}>
@@ -409,12 +423,12 @@ export default function GraphView() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={{
                   background: "rgba(30, 41, 59, 0.8)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  border: "1px solid rgba(255,255,255,0.12)",
                   borderRadius: "8px",
                   padding: "6px 12px",
                   color: "#f8fafc",
                   fontSize: "12px",
-                  width: "180px",
+                  width: "200px",
                   outline: "none",
                 }}
               />
@@ -437,22 +451,43 @@ export default function GraphView() {
               )}
             </div>
 
-            {/* Alternador de Modo (Grafo vs Roadmap Cards) */}
+            {/* Alternador de Mostrar Teia / Linhas Conectadas */}
+            <button
+              onClick={() => setShowAllEdges(!showAllEdges)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "1px solid",
+                borderColor: showAllEdges ? "#7c3aed" : "rgba(255,255,255,0.12)",
+                background: showAllEdges ? "rgba(124,58,237,0.25)" : "rgba(30, 41, 59, 0.6)",
+                color: showAllEdges ? "#c4b5fd" : "#94a3b8",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+            >
+              {showAllEdges ? "🌐 Exibindo Conexões" : "✨ Linhas ao passar mouse"}
+            </button>
+
+            {/* Alternador de Modo de Visualização */}
             <div style={{ display: "flex", background: "rgba(30,41,59,0.8)", borderRadius: "8px", padding: "2px", border: "1px solid rgba(255,255,255,0.1)" }}>
               <button
-                onClick={() => setViewMode("graph")}
+                onClick={() => setViewMode("columns")}
                 style={{
                   padding: "4px 10px",
                   borderRadius: "6px",
                   border: "none",
-                  background: viewMode === "graph" ? "#7c3aed" : "transparent",
-                  color: viewMode === "graph" ? "#fff" : "#94a3b8",
-                  fontSize: "12px",
+                  background: viewMode === "columns" ? "#7c3aed" : "transparent",
+                  color: viewMode === "columns" ? "#fff" : "#94a3b8",
+                  fontSize: "11px",
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                🌐 Grafo
+                📊 Colunas
               </button>
               <button
                 onClick={() => setViewMode("cards")}
@@ -462,12 +497,12 @@ export default function GraphView() {
                   border: "none",
                   background: viewMode === "cards" ? "#7c3aed" : "transparent",
                   color: viewMode === "cards" ? "#fff" : "#94a3b8",
-                  fontSize: "12px",
+                  fontSize: "11px",
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                📋 Roadmap
+                📋 Grid
               </button>
             </div>
 
@@ -493,29 +528,13 @@ export default function GraphView() {
                 </button>
               ))}
             </div>
-
-            <button
-              onClick={() => fetchGraphData(days)}
-              style={{
-                padding: "5px 10px",
-                borderRadius: "8px",
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.05)",
-                color: "#cbd5e1",
-                fontSize: "11px",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              ↻ Atualizar
-            </button>
           </div>
         </div>
 
-        {/* ── BARRA DE FILTROS POR CATEGORIA ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflowX: "auto", paddingBottom: "2px" }}>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>Filtrar Categoria:</span>
-          {availableCategories.map((cat) => {
+        {/* ── FILTROS DE CATEGORIA EM TAGS ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflowX: "auto" }}>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>Filtrar Área:</span>
+          {["ALL", ...COLUMN_ORDER].map((cat) => {
             const isSelected = selectedCategory === cat;
             const catColors = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.default;
             return (
@@ -535,14 +554,14 @@ export default function GraphView() {
                   transition: "all 0.2s ease",
                 }}
               >
-                {cat === "ALL" ? "✨ Todas as Categorias" : cat}
+                {cat === "ALL" ? "✨ Todas as Áreas" : cat}
               </button>
             );
           })}
 
           {/* Filtro de Hype Mínimo */}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>Min Hype:</span>
+            <span style={{ fontSize: "11px", color: "#64748b" }}>Relevância:</span>
             {[1.0, 1.5, 2.0].map((h) => (
               <button
                 key={h}
@@ -567,11 +586,11 @@ export default function GraphView() {
       </div>
 
       {/* ── CONTEÚDO PRINCIPAL ── */}
-      <div style={{ paddingTop: "100px", width: "100%", height: "100%" }}>
+      <div style={{ paddingTop: "96px", width: "100%", height: "100%" }}>
         {loading && (
           <div style={{ display: "flex", height: "80vh", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "12px" }}>
             <div style={{ width: "40px", height: "40px", border: "3px solid #7c3aed", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-            <p style={{ color: "#94a3b8", fontSize: "13px" }}>Carregando materiais de estudo...</p>
+            <p style={{ color: "#94a3b8", fontSize: "13px" }}>Organizando materiais de estudo...</p>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}
@@ -584,8 +603,8 @@ export default function GraphView() {
           </div>
         )}
 
-        {/* MODO 1: GRAFO ESPAÇADO POR CLUSTERS */}
-        {!loading && !error && viewMode === "graph" && (
+        {/* MODO 1: COLUNAS LIMPAS SEM SOBREPOSIÇÃO */}
+        {!loading && !error && viewMode === "columns" && (
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -595,12 +614,12 @@ export default function GraphView() {
             onNodeClick={onNodeClick}
             nodeTypes={nodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.3 }}
+            fitViewOptions={{ padding: 0.2 }}
             minZoom={0.1}
             maxZoom={2.5}
             proOptions={{ hideAttribution: true }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={32} size={1} color="rgba(255,255,255,0.05)" />
+            <Background variant={BackgroundVariant.Dots} gap={36} size={1} color="rgba(255,255,255,0.04)" />
             <Controls style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(255,255,255,0.1)" }} />
             <MiniMap
               style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(255,255,255,0.1)" }}
@@ -610,10 +629,10 @@ export default function GraphView() {
           </ReactFlow>
         )}
 
-        {/* MODO 2: ROADMAP EM GRID DE CARDS (FÁCIL LEITURA & FILTRO) */}
+        {/* MODO 2: GRID DE CARDS (LIMPO E DIRETO) */}
         {!loading && !error && viewMode === "cards" && (
-          <div style={{ padding: "24px 32px", height: "calc(100vh - 120px)", overflowY: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}>
+          <div style={{ padding: "24px 32px", height: "calc(100vh - 110px)", overflowY: "auto" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
               {filteredApiNodes.map((node) => {
                 const colors = CATEGORY_COLORS[node.category] ?? CATEGORY_COLORS.default;
                 return (
@@ -621,16 +640,22 @@ export default function GraphView() {
                     key={node.id}
                     onClick={() => setSelectedNode(node)}
                     style={{
-                      background: "rgba(15, 23, 42, 0.7)",
+                      background: "rgba(15, 23, 42, 0.75)",
                       border: `1px solid ${colors.border}`,
                       borderRadius: "14px",
                       padding: "16px",
-                      boxShadow: `0 4px 16px rgba(0,0,0,0.4)`,
+                      boxShadow: `0 4px 14px rgba(0,0,0,0.4)`,
                       cursor: "pointer",
-                      transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                      transition: "all 0.2s ease",
                     }}
-                    onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-2px)")}
-                    onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = `0 0 20px ${colors.glow}`;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = `0 4px 14px rgba(0,0,0,0.4)`;
+                    }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                       <span style={{ fontSize: "10px", fontWeight: 700, color: colors.border, background: colors.badgeBg, padding: "2px 8px", borderRadius: "6px" }}>
@@ -644,33 +669,33 @@ export default function GraphView() {
                       {node.label}
                     </h3>
                     <div style={{ fontSize: "11px", color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: "12px" }}>
-                      <span>Menções em artigos: {node.mentionCount}×</span>
-                      <span style={{ color: "#a78bfa" }}>Ver Relações →</span>
+                      <span>{node.mentionCount} discussões</span>
+                      <span style={{ color: colors.border, fontWeight: 600 }}>Estudar →</span>
                     </div>
                   </div>
                 );
               })}
             </div>
             {filteredApiNodes.length === 0 && (
-              <div style={{ textAlign: "center", color: "#64748b", marginTop: "40px" }}>
-                Nenhuma tecnologia de estudo encontrada para os filtros selecionados.
+              <div style={{ textAlign: "center", color: "#64748b", marginTop: "60px" }}>
+                Nenhuma tecnologia encontrada para os filtros selecionados.
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* ── PAINEL DE DETALHES DO NÓ SELECIONADO ── */}
+      {/* ── PAINEL DE DETALHES DA TECNOLOGIA SELECIONADA ── */}
       {selectedNode && (
         <div
           style={{
             position: "absolute",
             bottom: "20px",
             right: "20px",
-            width: "280px",
+            width: "300px",
             background: "rgba(15, 23, 42, 0.95)",
             backdropFilter: "blur(16px)",
-            border: `1px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
+            border: `2px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
             borderRadius: "16px",
             padding: "20px",
             zIndex: 30,
@@ -691,31 +716,32 @@ export default function GraphView() {
 
           <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Relevância (Hype):</span>
+              <span style={{ color: "#64748b" }}>Relevância em Alta:</span>
               <span style={{ color: "#f59e0b", fontWeight: 700 }}>{selectedNode.hypeScore.toFixed(2)} 🔥</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Frequência no HN:</span>
-              <span style={{ color: "#f8fafc", fontWeight: 600 }}>{selectedNode.mentionCount} discussões</span>
+              <span style={{ color: "#64748b" }}>Frequência de Menções:</span>
+              <span style={{ color: "#f8fafc", fontWeight: 600 }}>{selectedNode.mentionCount} discussões no HN</span>
             </div>
-            <div style={{ marginTop: "12px" }}>
+            <div style={{ marginTop: "14px" }}>
               <a
-                href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " tutorial documentation")}`}
+                href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{
                   display: "block",
                   textAlign: "center",
-                  padding: "8px",
-                  borderRadius: "8px",
+                  padding: "10px",
+                  borderRadius: "10px",
                   background: "#7c3aed",
                   color: "#fff",
                   fontSize: "12px",
-                  fontWeight: 600,
+                  fontWeight: 700,
                   textDecoration: "none",
+                  transition: "background 0.2s ease",
                 }}
               >
-                📖 Pesquisar Documentação & Guia
+                📖 Abrir Guia de Estudo & Documentação
               </a>
             </div>
           </div>
