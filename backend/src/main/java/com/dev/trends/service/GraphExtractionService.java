@@ -62,22 +62,25 @@ public class GraphExtractionService {
                 .build();
     }
 
+    // Record para armazenar dados completos da matéria do HN
+    public record HnArticle(long id, String title, String url, String hnUrl) {}
+
     /**
      * Pipeline principal: busca artigos do HN → extrai grafo via LLM → persiste no Supabase.
      */
     @Transactional
     public ExtractionResult runIngestionPipeline() {
-        log.info("Iniciando pipeline de ingestão do Hacker News...");
+        log.info("Iniciando pipeline de ingestão do Hacker News com resumos específicos...");
 
-        List<String> titles = fetchHackerNewsTitles();
-        if (titles.isEmpty()) {
-            log.warn("Nenhum título coletado do Hacker News. Abortando pipeline.");
+        List<HnArticle> articles = fetchHackerNewsArticles();
+        if (articles.isEmpty()) {
+            log.warn("Nenhum artigo coletado do Hacker News. Abortando pipeline.");
             return ExtractionResult.empty();
         }
-        log.info("Coletados {} títulos do Hacker News.", titles.size());
+        log.info("Coletados {} artigos com links do Hacker News.", articles.size());
 
-        ExtractionResult extracted = callLlmForExtraction(titles);
-        log.info("LLM extraiu {} nós e {} arestas.", extracted.nodes().size(), extracted.edges().size());
+        ExtractionResult extracted = callLlmForExtraction(articles);
+        log.info("LLM extraiu {} nós específicos e {} arestas.", extracted.nodes().size(), extracted.edges().size());
 
         int nodesCreated = persistNodes(extracted.nodes());
         int edgesCreated = persistEdges(extracted.edges());
@@ -87,12 +90,11 @@ public class GraphExtractionService {
     }
 
     // =========================================================
-    // FASE 1: Coleta do Hacker News
+    // FASE 1: Coleta do Hacker News (Com URLs reais)
     // =========================================================
 
-    private List<String> fetchHackerNewsTitles() {
+    private List<HnArticle> fetchHackerNewsArticles() {
         try {
-            // 1a. Busca IDs das top stories
             HttpRequest topStoriesReq = HttpRequest.newBuilder()
                     .uri(URI.create(HN_TOP_STORIES_URL))
                     .timeout(Duration.ofSeconds(10))
@@ -113,14 +115,13 @@ public class GraphExtractionService {
                 storyIds.add(idsNode.get(i).asLong());
             }
 
-            // 1b. Busca títulos em paralelo usando CompletableFuture (Java 21)
-            List<CompletableFuture<String>> futures = storyIds.stream()
-                    .map(id -> CompletableFuture.supplyAsync(() -> fetchItemTitle(id), httpClient.executor().orElse(Runnable::run)))
+            List<CompletableFuture<HnArticle>> futures = storyIds.stream()
+                    .map(id -> CompletableFuture.supplyAsync(() -> fetchItemArticle(id), httpClient.executor().orElse(Runnable::run)))
                     .toList();
 
             return futures.stream()
                     .map(CompletableFuture::join)
-                    .filter(title -> title != null && !title.isBlank())
+                    .filter(article -> article != null && article.title() != null && !article.title().isBlank())
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
@@ -129,7 +130,7 @@ public class GraphExtractionService {
         }
     }
 
-    private String fetchItemTitle(long itemId) {
+    private HnArticle fetchItemArticle(long itemId) {
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(HN_ITEM_URL.formatted(itemId)))
@@ -141,7 +142,10 @@ public class GraphExtractionService {
             if (resp.statusCode() == 200) {
                 JsonNode item = objectMapper.readTree(resp.body());
                 if (item.has("title")) {
-                    return item.get("title").asText();
+                    String title = item.get("title").asText();
+                    String articleUrl = item.has("url") ? item.get("url").asText() : "https://news.ycombinator.com/item?id=" + itemId;
+                    String hnDiscussionUrl = "https://news.ycombinator.com/item?id=" + itemId;
+                    return new HnArticle(itemId, title, articleUrl, hnDiscussionUrl);
                 }
             }
         } catch (Exception e) {
@@ -151,7 +155,7 @@ public class GraphExtractionService {
     }
 
     // =========================================================
-    // FASE 2: Extração via LLM (OpenAI / Groq)
+    // FASE 2: Extração via LLM (Resumos Específicos & Únicos)
     // =========================================================
 
     // Lista de termos genéricos banidos para garantir foco em materiais de estudo
@@ -161,43 +165,42 @@ public class GraphExtractionService {
             "blog", "system", "file", "code", "tech", "technology", "data", "app"
     );
 
-    private ExtractionResult callLlmForExtraction(List<String> titles) {
+    private ExtractionResult callLlmForExtraction(List<HnArticle> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração baseada em palavras-chave.");
-            return extractByKeyword(titles);
+            return extractByKeyword(articles.stream().map(HnArticle::title).toList());
         }
 
-        String titlesBlock = titles.stream()
-                .map(t -> "- " + t)
+        String articlesBlock = articles.stream()
+                .map(a -> "- TÍTULO: " + a.title() + " | LINK: " + a.hnUrl())
                 .collect(Collectors.joining("\n"));
 
         String systemPrompt = """
-                Você é um Curador Técnico Sênior especializado em identificar tecnologias de ponta para estudo de Engenheiros de Software.
-                Analise os artigos/discussões fornecidos e extraia um grafo de conhecimento contendo APENAS ferramentas, linguagens, frameworks e conceitos emergentes com ALTO VALOR DE APRENDIZADO/ESTUDO.
+                Você é um Curador Técnico Sênior especializado em Engenharia de Software e IA.
+                Analise a lista de matérias/discussões fornecidas e extraia as principais ferramentas, linguagens, frameworks e modelos com ALTO VALOR DE APRENDIZADO.
                 
-                PROIBIDO EXTRAIR:
-                - Sistemas Operacionais genéricos ou antigos (Linux, Mac, Windows, Android, iOS).
-                - Termos genéricos de TI (Software, Hardware, Internet, Web, Computer, Code, Data, System, PDF, Article, Blog).
+                REGRAS OBRIGATÓRIAS DE CONTEÚDO:
+                1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
+                2. CADA NÓ DEVE TER UM "summary" ÚNICO, TÉCNICO E ESPECÍFICO (1 a 2 frases em Português) explicando exatamente O QUE É essa tecnologia, O QUE ELA FAZ e POR QUE VALE A PENA ESTUDAR.
+                3. NUNCA REPITA o mesmo resumo para tecnologias diferentes! Cada tecnologia deve ter seu próprio resumo explicativo.
+                4. Associe cada nó ao "sourceUrl" do artigo correspondente.
                 
-                PERMITIDO E RECOMENDADO:
-                - Frameworks (ex: LangGraph, Next.js, FastAPI, Spring Boot, Actix).
-                - Ferramentas & Libs (ex: Docker, WebAssembly, vLLM, Ollama, pgvector, Turbopack).
-                - Modelos & IA (ex: Claude 3.5, Llama 3, DeepSeek, Whisper, Agentic Loops, RAG, MCP).
-                - Linguagens & Runtimes (ex: Rust, Zig, Go, Bun, Mojo).
-                
-                REGRAS ESTRITAS DE FORMATO:
-                1. Cada nó deve ter: "label", "category", "summary" (uma frase concisa em Português explicando o valor de estudo/contexto técnico) e "sourceUrl" (URL do artigo fornecido).
-                2. Cada aresta representa uma relação semântica entre os conceitos (USES, COMPETES_WITH, EVOLVED_FROM, INTEGRATES_WITH, RELATED_TO).
-                3. Responda APENAS com JSON estrito.
-                
-                FORMATO OBRIGATÓRIO:
+                EXEMPLO DE RESPOSTA ESPERADA:
                 {
                   "nodes": [
                     {
                       "label": "LangGraph",
                       "category": "Framework",
-                      "summary": "Framework para orquestração de loops de agentes de IA stateful e grafos de decisão.",
-                      "sourceUrl": "https://news.ycombinator.com/item?id=123"
+                      "summary": "Framework em Python e TypeScript para criar agentes de IA com estado persistente e fluxos cíclicos avançados.",
+                      "sourceUrl": "https://news.ycombinator.com/item?id=39123456",
+                      "sourceTitle": "LangGraph v0.2 Release"
+                    },
+                    {
+                      "label": "vLLM",
+                      "category": "Tool",
+                      "summary": "Biblioteca de alta performance para inferência e servimento de LLMs com gerenciamento otimizado de memória via PagedAttention.",
+                      "sourceUrl": "https://news.ycombinator.com/item?id=39876543",
+                      "sourceTitle": "vLLM Fast LLM Serving"
                     }
                   ],
                   "edges": [
@@ -206,13 +209,13 @@ public class GraphExtractionService {
                 }
                 """;
 
-        String userMessage = "Analise estes títulos e artigos do Hacker News e extraia tecnologias relevantes para estudo:\n\n" + titlesBlock;
+        String userMessage = "Analise estas matérias do Hacker News e extraia o grafo de conhecimento com resumos únicos e específicos para estudo:\n\n" + articlesBlock;
 
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", llmModel,
                     "temperature", 0.1,
-                    "max_tokens", 2000,
+                    "max_tokens", 2500,
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
                             Map.of("role", "user", "content", userMessage)
@@ -233,18 +236,18 @@ public class GraphExtractionService {
 
             if (llmResp.statusCode() != 200) {
                 log.error("LLM API retornou status {}. Body: {}", llmResp.statusCode(), llmResp.body());
-                return extractByKeyword(titles);
+                return extractByKeyword(articles.stream().map(HnArticle::title).toList());
             }
 
-            return parseLlmResponse(llmResp.body());
+            return parseLlmResponse(llmResp.body(), articles);
 
         } catch (Exception e) {
             log.error("Erro na chamada ao LLM: {}", e.getMessage(), e);
-            return extractByKeyword(titles);
+            return extractByKeyword(articles.stream().map(HnArticle::title).toList());
         }
     }
 
-    private ExtractionResult parseLlmResponse(String responseBody) {
+    private ExtractionResult parseLlmResponse(String responseBody, List<HnArticle> articles) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             String content = root
@@ -259,12 +262,22 @@ public class GraphExtractionService {
 
             List<NodeRequest> nodes = StreamSupport.stream(
                             graphJson.path("nodes").spliterator(), false)
-                    .map(n -> new NodeRequest(
-                            n.path("label").asText("Unknown").trim(),
-                            n.path("category").asText("Technology").trim(),
-                            n.path("summary").asText("Material de estudo e tecnologia em alta no ecossistema dev."),
-                            n.path("sourceUrl").asText("https://news.ycombinator.com"),
-                            n.path("sourceTitle").asText("Discussão no Hacker News")))
+                    .map(n -> {
+                        String label = n.path("label").asText("Unknown").trim();
+                        String category = n.path("category").asText("Technology").trim();
+                        String summary = n.path("summary").asText("").trim();
+                        String sourceUrl = n.path("sourceUrl").asText("").trim();
+                        String sourceTitle = n.path("sourceTitle").asText("Discussão no Hacker News").trim();
+
+                        if (summary.isBlank() || summary.length() < 15) {
+                            summary = buildDefaultSummary(label, category);
+                        }
+                        if (sourceUrl.isBlank()) {
+                            sourceUrl = articles.isEmpty() ? "https://news.ycombinator.com" : articles.get(0).hnUrl();
+                        }
+
+                        return new NodeRequest(label, category, summary, sourceUrl, sourceTitle);
+                    })
                     .filter(n -> !n.label().isBlank())
                     .filter(n -> !isBlacklisted(n.label()))
                     .toList();
@@ -285,6 +298,16 @@ public class GraphExtractionService {
             log.error("Falha ao parsear resposta do LLM: {}", e.getMessage(), e);
             return ExtractionResult.empty();
         }
+    }
+
+    private String buildDefaultSummary(String label, String category) {
+        return switch (category.toLowerCase()) {
+            case "framework" -> label + " é um framework em alta focado em escalabilidade, arquitetura limpa e produtividade.";
+            case "tool", "platform" -> label + " é uma ferramenta/plataforma essencial para otimização de workflow, infraestrutura e devops.";
+            case "model" -> label + " é um modelo de Inteligência Artificial emergente com capacidades avançadas de raciocínio e geração.";
+            case "language" -> label + " é uma linguagem/runtime moderna com foco em performance, segurança de memória e concorrência.";
+            default -> label + " é um conceito/tecnologia em destaque nas discussões recentes de engenharia de software.";
+        };
     }
 
     private boolean isBlacklisted(String label) {

@@ -57,9 +57,9 @@ public class NodeRepository {
                     SET mention_count = nodes.mention_count + 1,
                         hype_score    = nodes.hype_score + 0.5,
                         last_seen     = NOW(),
-                        summary       = COALESCE(EXCLUDED.summary, nodes.summary),
-                        source_url    = COALESCE(EXCLUDED.source_url, nodes.source_url),
-                        source_title  = COALESCE(EXCLUDED.source_title, nodes.source_title),
+                        summary       = EXCLUDED.summary,
+                        source_url    = EXCLUDED.source_url,
+                        source_title  = EXCLUDED.source_title,
                         category      = COALESCE(NULLIF(EXCLUDED.category, 'Technology'), nodes.category)
                 RETURNING id;
                 """;
