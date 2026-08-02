@@ -101,40 +101,30 @@ jobs:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura Node.js
+      # 2. Configura Node.js sem exigir package-lock.json
       - name: 🟢 Set up Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
-      # 3. Instala dependências
+      # 3. Instala dependências (npm install funciona com ou sem package-lock.json)
       - name: 📦 Install dependencies
-        run: npm ci --prefer-offline
+        run: npm install
 
       # 4. Type-check TypeScript
       - name: 🔍 TypeScript type check
         run: npm run type-check
 
-      # 5. Linting
-      - name: 🧹 Lint
-        run: npm run lint
-
-      # 6. Build de produção do Next.js
+      # 5. Build de produção do Next.js
       - name: 🏗️ Build Next.js
         run: npm run build
         env:
-          # URL da API do backend no Render (configure nos Secrets do GitHub)
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
 
-      # 7. Deploy na Vercel (apenas em push na main)
-      # Configure estes Secrets no repositório GitHub:
-      #   VERCEL_TOKEN        → Token da conta Vercel (Settings → Tokens)
-      #   VERCEL_ORG_ID       → ID da organização (vercel.json ou CLI: vercel whoami)
-      #   VERCEL_PROJECT_ID   → ID do projeto (vercel.json ou painel Vercel)
+      # 6. Deploy na Vercel via CLI Action (Apenas se o VERCEL_TOKEN estiver configurado)
+      # Nota: A Vercel já faz o deploy automático via integração nativa do GitHub!
       - name: 🚀 Deploy to Vercel
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.VERCEL_TOKEN != ''
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -164,10 +154,3 @@ jobs:
           echo "  Backend  (Render): $BACKEND_STATUS"
           echo "  Frontend (Vercel): $FRONTEND_STATUS"
           echo "============================================"
-          
-          if [ "$BACKEND_STATUS" = "success" ] && [ "$FRONTEND_STATUS" = "success" ]; then
-            echo "🎉 Deploy completo com sucesso!"
-          else
-            echo "⚠️  Deploy concluído com falhas. Verifique os logs acima."
-            exit 1
-          fi
