@@ -173,30 +173,32 @@ public class GraphExtractionService {
 
         String systemPrompt = """
                 Você é um Curador Técnico Sênior especializado em identificar tecnologias de ponta para estudo de Engenheiros de Software.
-                Analise os títulos de artigos fornecidos e extraia um grafo de conhecimento contendo APENAS ferramentas, linguagens, frameworks e conceitos emergentes com ALTO VALOR DE APRENDIZADO/ESTUDO.
+                Analise os artigos/discussões fornecidos e extraia um grafo de conhecimento contendo APENAS ferramentas, linguagens, frameworks e conceitos emergentes com ALTO VALOR DE APRENDIZADO/ESTUDO.
                 
-                PROIBIDO EXTRAIR (NÃO INCLUA):
+                PROIBIDO EXTRAIR:
                 - Sistemas Operacionais genéricos ou antigos (Linux, Mac, Windows, Android, iOS).
-                - Termos genéricos de TI (Software, Hardware, Internet, Web, Computer, Code, Data, System, PDF, Article).
-                - Empresas genéricas a menos que seja sobre um modelo/tecnologia específico lançado por ela.
+                - Termos genéricos de TI (Software, Hardware, Internet, Web, Computer, Code, Data, System, PDF, Article, Blog).
                 
-                PERMITIDO E RECOMENDADO (FOCO EM MATÉRIA DE ESTUDO):
+                PERMITIDO E RECOMENDADO:
                 - Frameworks (ex: LangGraph, Next.js, FastAPI, Spring Boot, Actix).
                 - Ferramentas & Libs (ex: Docker, WebAssembly, vLLM, Ollama, pgvector, Turbopack).
                 - Modelos & IA (ex: Claude 3.5, Llama 3, DeepSeek, Whisper, Agentic Loops, RAG, MCP).
                 - Linguagens & Runtimes (ex: Rust, Zig, Go, Bun, Mojo).
                 
                 REGRAS ESTRITAS DE FORMATO:
-                1. Cada nó deve ter: "label" (nome exato e específico da tecnologia/conceito) e "category" (uma de: Language, Framework, Tool, Platform, Concept, Model).
+                1. Cada nó deve ter: "label", "category", "summary" (uma frase concisa em Português explicando o valor de estudo/contexto técnico) e "sourceUrl" (URL do artigo fornecido).
                 2. Cada aresta representa uma relação semântica entre os conceitos (USES, COMPETES_WITH, EVOLVED_FROM, INTEGRATES_WITH, RELATED_TO).
-                3. Extraia entre 8 e 20 nós relevantes.
-                4. Responda APENAS com JSON estrito, sem markdown ou explicações.
+                3. Responda APENAS com JSON estrito.
                 
                 FORMATO OBRIGATÓRIO:
                 {
                   "nodes": [
-                    {"label": "LangGraph", "category": "Framework"},
-                    {"label": "vLLM", "category": "Tool"}
+                    {
+                      "label": "LangGraph",
+                      "category": "Framework",
+                      "summary": "Framework para orquestração de loops de agentes de IA stateful e grafos de decisão.",
+                      "sourceUrl": "https://news.ycombinator.com/item?id=123"
+                    }
                   ],
                   "edges": [
                     {"source": "LangGraph", "target": "vLLM", "relation": "INTEGRATES_WITH"}
@@ -204,7 +206,7 @@ public class GraphExtractionService {
                 }
                 """;
 
-        String userMessage = "Analise estes títulos do Hacker News e extraia APENAS tecnologias relevantes para estudo:\n\n" + titlesBlock;
+        String userMessage = "Analise estes títulos e artigos do Hacker News e extraia tecnologias relevantes para estudo:\n\n" + titlesBlock;
 
         try {
             Map<String, Object> requestBody = Map.of(
@@ -259,7 +261,10 @@ public class GraphExtractionService {
                             graphJson.path("nodes").spliterator(), false)
                     .map(n -> new NodeRequest(
                             n.path("label").asText("Unknown").trim(),
-                            n.path("category").asText("Technology").trim()))
+                            n.path("category").asText("Technology").trim(),
+                            n.path("summary").asText("Material de estudo e tecnologia em alta no ecossistema dev."),
+                            n.path("sourceUrl").asText("https://news.ycombinator.com"),
+                            n.path("sourceTitle").asText("Discussão no Hacker News")))
                     .filter(n -> !n.label().isBlank())
                     .filter(n -> !isBlacklisted(n.label()))
                     .toList();
@@ -338,7 +343,7 @@ public class GraphExtractionService {
         int count = 0;
         for (NodeRequest node : nodes) {
             try {
-                nodeRepository.upsertNode(node.label(), node.category());
+                nodeRepository.upsertNode(node.label(), node.category(), node.summary(), node.sourceUrl(), node.sourceTitle());
                 count++;
             } catch (Exception e) {
                 log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());

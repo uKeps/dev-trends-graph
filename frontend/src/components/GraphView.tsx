@@ -37,6 +37,9 @@ interface ApiNode {
   category: string;
   hypeScore: number;
   mentionCount: number;
+  summary?: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
   firstSeen?: string;
   lastSeen?: string;
 }
@@ -692,14 +695,14 @@ export default function GraphView() {
             position: "absolute",
             bottom: "20px",
             right: "20px",
-            width: "300px",
-            background: "rgba(15, 23, 42, 0.95)",
-            backdropFilter: "blur(16px)",
+            width: "340px",
+            background: "rgba(15, 23, 42, 0.96)",
+            backdropFilter: "blur(20px)",
             border: `2px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
-            borderRadius: "16px",
+            borderRadius: "18px",
             padding: "20px",
             zIndex: 30,
-            boxShadow: `0 8px 32px rgba(0,0,0,0.8)`,
+            boxShadow: `0 12px 40px rgba(0,0,0,0.85)`,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -707,30 +710,76 @@ export default function GraphView() {
               <span style={{ fontSize: "10px", color: (CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border, fontWeight: 700, textTransform: "uppercase" }}>
                 {selectedNode.category}
               </span>
-              <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#f8fafc", margin: "4px 0 0 0" }}>
+              <h2 style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", margin: "4px 0 0 0" }}>
                 {selectedNode.label}
               </h2>
             </div>
-            <button onClick={() => setSelectedNode(null)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "20px" }}>×</button>
+            <button onClick={() => setSelectedNode(null)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "22px" }}>×</button>
           </div>
 
-          <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            {/* Resumo/Contexto de Estudo */}
+            <div
+              style={{
+                background: "rgba(30, 41, 59, 0.6)",
+                borderLeft: `3px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
+                padding: "10px 12px",
+                borderRadius: "8px",
+                fontSize: "12px",
+                color: "#e2e8f0",
+                lineHeight: 1.4,
+              }}
+            >
+              <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", marginBottom: "4px" }}>
+                💬 POR QUE ESTUDAR / CONTEXTO DA COMUNIDADE:
+              </div>
+              {selectedNode.summary || "Tecnologia em ascensão no ecossistema dev com discussões recentes no Hacker News."}
+            </div>
+
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
               <span style={{ color: "#64748b" }}>Relevância em Alta:</span>
               <span style={{ color: "#f59e0b", fontWeight: 700 }}>{selectedNode.hypeScore.toFixed(2)} 🔥</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Frequência de Menções:</span>
-              <span style={{ color: "#f8fafc", fontWeight: 600 }}>{selectedNode.mentionCount} discussões no HN</span>
+              <span style={{ color: "#64748b" }}>Discussões Rastreadas:</span>
+              <span style={{ color: "#f8fafc", fontWeight: 600 }}>{selectedNode.mentionCount} discussões</span>
             </div>
-            <div style={{ marginTop: "14px" }}>
+
+            {/* Links Diretos para Fontes Originais */}
+            <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
+              {selectedNode.sourceUrl && (
+                <a
+                  href={selectedNode.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "8px",
+                    padding: "10px",
+                    borderRadius: "10px",
+                    background: "rgba(249, 115, 22, 0.15)",
+                    border: "1px solid rgba(249, 115, 22, 0.4)",
+                    color: "#fdba74",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    textDecoration: "none",
+                  }}
+                >
+                  🔥 Ler Discussão/Post Original (HN) ↗
+                </a>
+              )}
+
               <a
                 href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{
-                  display: "block",
-                  textAlign: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
                   padding: "10px",
                   borderRadius: "10px",
                   background: "#7c3aed",
@@ -738,10 +787,9 @@ export default function GraphView() {
                   fontSize: "12px",
                   fontWeight: 700,
                   textDecoration: "none",
-                  transition: "background 0.2s ease",
                 }}
               >
-                📖 Abrir Guia de Estudo & Documentação
+                📖 Documentação & Guias de Estudo ↗
               </a>
             </div>
           </div>

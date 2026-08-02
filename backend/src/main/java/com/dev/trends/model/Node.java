@@ -14,6 +14,9 @@ public class Node {
     private OffsetDateTime firstSeen;
     private OffsetDateTime lastSeen;
     private Integer mentionCount;
+    private String summary;
+    private String sourceUrl;
+    private String sourceTitle;
 
     public Node() {}
 
@@ -42,4 +45,10 @@ public class Node {
     public void setLastSeen(OffsetDateTime lastSeen) { this.lastSeen = lastSeen; }
     public Integer getMentionCount() { return mentionCount; }
     public void setMentionCount(Integer mentionCount) { this.mentionCount = mentionCount; }
+    public String getSummary() { return summary; }
+    public void setSummary(String summary) { this.summary = summary; }
+    public String getSourceUrl() { return sourceUrl; }
+    public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
+    public String getSourceTitle() { return sourceTitle; }
+    public void setSourceTitle(String sourceTitle) { this.sourceTitle = sourceTitle; }
 }

@@ -87,6 +87,9 @@ public class GraphController {
                         node.put("category", n.getCategory());
                         node.put("hypeScore", n.getHypeScore());
                         node.put("mentionCount", n.getMentionCount());
+                        node.put("summary", n.getSummary());
+                        node.put("sourceUrl", n.getSourceUrl());
+                        node.put("sourceTitle", n.getSourceTitle());
                         node.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
                         node.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
                         return node;
