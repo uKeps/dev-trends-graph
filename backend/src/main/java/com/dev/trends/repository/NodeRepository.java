@@ -45,6 +45,13 @@ public class NodeRepository {
     }
 
     /**
+     * Insere ou atualiza um nó (sobrecarga para conveniência com 2 parâmetros).
+     */
+    public UUID upsertNode(String label, String category) {
+        return upsertNode(label, category, null, null, null);
+    }
+
+    /**
      * Insere ou atualiza um nó com resumo e link de origem.
      */
     public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle) {

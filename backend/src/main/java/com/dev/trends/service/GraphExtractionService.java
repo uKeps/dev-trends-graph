@@ -384,12 +384,12 @@ public class GraphExtractionService {
 
                 if (sourceId == null) {
                     log.warn("Nó de origem '{}' não encontrado. Criando com categoria 'Concept'.", edge.source());
-                    nodeRepository.upsertNode(edge.source(), "Concept");
+                    nodeRepository.upsertNode(edge.source(), "Concept", "Conceito em destaque no ecossistema.", null, null);
                     sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
                 }
                 if (targetId == null) {
                     log.warn("Nó de destino '{}' não encontrado. Criando com categoria 'Concept'.", edge.target());
-                    nodeRepository.upsertNode(edge.target(), "Concept");
+                    nodeRepository.upsertNode(edge.target(), "Concept", "Conceito em destaque no ecossistema.", null, null);
                     targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
                 }
 
