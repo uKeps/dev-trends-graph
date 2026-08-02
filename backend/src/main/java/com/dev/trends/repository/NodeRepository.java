@@ -50,13 +50,18 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna todos os nós que foram vistos desde N dias atrás.
+     * Retorna todos os nós que foram vistos desde N dias atrás, ignorando termos genéricos de TI.
      */
     public List<Node> findNodesSince(int days) {
         String sql = """
                 SELECT id, label, category, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
                 WHERE last_seen >= NOW() - (? || ' days')::INTERVAL
+                  AND LOWER(label) NOT IN (
+                    'mac', 'macos', 'linux', 'windows', 'unix', 'pc', 'computer', 'software',
+                    'hardware', 'internet', 'web', 'news', 'show hn', 'ask hn', 'pdf', 'article',
+                    'blog', 'system', 'file', 'code', 'tech', 'technology', 'data', 'app'
+                  )
                 ORDER BY hype_score DESC
                 """;
         return jdbc.query(sql, NODE_ROW_MAPPER, days);

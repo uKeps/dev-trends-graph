@@ -154,6 +154,13 @@ public class GraphExtractionService {
     // FASE 2: Extração via LLM (OpenAI / Groq)
     // =========================================================
 
+    // Lista de termos genéricos banidos para garantir foco em materiais de estudo
+    private static final List<String> BLACKLIST = List.of(
+            "mac", "macos", "linux", "windows", "unix", "pc", "computer", "software",
+            "hardware", "internet", "web", "news", "show hn", "ask hn", "pdf", "article",
+            "blog", "system", "file", "code", "tech", "technology", "data", "app"
+    );
+
     private ExtractionResult callLlmForExtraction(List<String> titles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração baseada em palavras-chave.");
@@ -165,29 +172,39 @@ public class GraphExtractionService {
                 .collect(Collectors.joining("\n"));
 
         String systemPrompt = """
-                Você é um especialista em tecnologia e ecossistema de desenvolvimento de software.
-                Analise os títulos de artigos técnicos fornecidos e extraia um grafo de conhecimento.
+                Você é um Curador Técnico Sênior especializado em identificar tecnologias de ponta para estudo de Engenheiros de Software.
+                Analise os títulos de artigos fornecidos e extraia um grafo de conhecimento contendo APENAS ferramentas, linguagens, frameworks e conceitos emergentes com ALTO VALOR DE APRENDIZADO/ESTUDO.
                 
-                REGRAS ESTRITAS:
-                1. Identifique apenas tecnologias, frameworks, linguagens, ferramentas, empresas e conceitos técnicos reais.
-                2. Cada nó deve ter: "label" (nome exato, max 50 chars) e "category" (uma de: Language, Framework, Tool, Platform, Concept, Company, Model).
-                3. Cada aresta representa uma relação semântica real entre os conceitos.
-                4. Tipos de relação permitidos: USES, COMPETES_WITH, EVOLVED_FROM, PART_OF, REPLACES, INTEGRATES_WITH, RUNS_ON, RELATED_TO.
-                5. Extraia no mínimo 5 nós e 4 arestas. Máximo: 20 nós e 25 arestas.
-                6. Responda APENAS com JSON válido, sem markdown, sem explicações extras.
+                PROIBIDO EXTRAIR (NÃO INCLUA):
+                - Sistemas Operacionais genéricos ou antigos (Linux, Mac, Windows, Android, iOS).
+                - Termos genéricos de TI (Software, Hardware, Internet, Web, Computer, Code, Data, System, PDF, Article).
+                - Empresas genéricas a menos que seja sobre um modelo/tecnologia específico lançado por ela.
                 
-                FORMATO DE RESPOSTA OBRIGATÓRIO:
+                PERMITIDO E RECOMENDADO (FOCO EM MATÉRIA DE ESTUDO):
+                - Frameworks (ex: LangGraph, Next.js, FastAPI, Spring Boot, Actix).
+                - Ferramentas & Libs (ex: Docker, WebAssembly, vLLM, Ollama, pgvector, Turbopack).
+                - Modelos & IA (ex: Claude 3.5, Llama 3, DeepSeek, Whisper, Agentic Loops, RAG, MCP).
+                - Linguagens & Runtimes (ex: Rust, Zig, Go, Bun, Mojo).
+                
+                REGRAS ESTRITAS DE FORMATO:
+                1. Cada nó deve ter: "label" (nome exato e específico da tecnologia/conceito) e "category" (uma de: Language, Framework, Tool, Platform, Concept, Model).
+                2. Cada aresta representa uma relação semântica entre os conceitos (USES, COMPETES_WITH, EVOLVED_FROM, INTEGRATES_WITH, RELATED_TO).
+                3. Extraia entre 8 e 20 nós relevantes.
+                4. Responda APENAS com JSON estrito, sem markdown ou explicações.
+                
+                FORMATO OBRIGATÓRIO:
                 {
                   "nodes": [
-                    {"label": "NomeDaTecnologia", "category": "Framework"}
+                    {"label": "LangGraph", "category": "Framework"},
+                    {"label": "vLLM", "category": "Tool"}
                   ],
                   "edges": [
-                    {"source": "NomeDaTecnologia", "target": "OutroConceito", "relation": "USES"}
+                    {"source": "LangGraph", "target": "vLLM", "relation": "INTEGRATES_WITH"}
                   ]
                 }
                 """;
 
-        String userMessage = "Analise estes títulos de artigos do Hacker News e extraia o grafo de conceitos técnicos:\n\n" + titlesBlock;
+        String userMessage = "Analise estes títulos do Hacker News e extraia APENAS tecnologias relevantes para estudo:\n\n" + titlesBlock;
 
         try {
             Map<String, Object> requestBody = Map.of(
@@ -234,7 +251,6 @@ public class GraphExtractionService {
                     .path("content")
                     .asText();
 
-            // Remove possíveis blocos de markdown se o LLM ignorou as instruções
             content = content.replaceAll("```json", "").replaceAll("```", "").trim();
 
             JsonNode graphJson = objectMapper.readTree(content);
@@ -242,18 +258,20 @@ public class GraphExtractionService {
             List<NodeRequest> nodes = StreamSupport.stream(
                             graphJson.path("nodes").spliterator(), false)
                     .map(n -> new NodeRequest(
-                            n.path("label").asText("Unknown"),
-                            n.path("category").asText("Technology")))
+                            n.path("label").asText("Unknown").trim(),
+                            n.path("category").asText("Technology").trim()))
                     .filter(n -> !n.label().isBlank())
+                    .filter(n -> !isBlacklisted(n.label()))
                     .toList();
 
             List<EdgeRequest> edges = StreamSupport.stream(
                             graphJson.path("edges").spliterator(), false)
                     .map(e -> new EdgeRequest(
-                            e.path("source").asText(),
-                            e.path("target").asText(),
-                            e.path("relation").asText("RELATED_TO")))
+                            e.path("source").asText().trim(),
+                            e.path("target").asText().trim(),
+                            e.path("relation").asText("RELATED_TO").trim()))
                     .filter(e -> !e.source().isBlank() && !e.target().isBlank())
+                    .filter(e -> !isBlacklisted(e.source()) && !isBlacklisted(e.target()))
                     .toList();
 
             return new ExtractionResult(nodes, edges);
@@ -262,6 +280,12 @@ public class GraphExtractionService {
             log.error("Falha ao parsear resposta do LLM: {}", e.getMessage(), e);
             return ExtractionResult.empty();
         }
+    }
+
+    private boolean isBlacklisted(String label) {
+        if (label == null || label.isBlank()) return true;
+        String lower = label.toLowerCase().trim();
+        return BLACKLIST.stream().anyMatch(b -> lower.equals(b) || lower.startsWith(b + " ") || lower.endsWith(" " + b));
     }
 
     /**
