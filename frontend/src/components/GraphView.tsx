@@ -40,6 +40,7 @@ interface ApiNode {
   summary?: string;
   sourceUrl?: string;
   sourceTitle?: string;
+  sourcePlatform?: string;
   firstSeen?: string;
   lastSeen?: string;
 }
@@ -95,6 +96,24 @@ const RELATION_COLORS: Record<string, string> = {
 
 // Order de exibição das colunas no canvas
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
+
+const SOURCE_PLATFORMS: Record<string, { label: string; icon: string; color: string; bg: string }> = {
+  hackernews: { label: "Hacker News", icon: "🔶", color: "#f97316", bg: "rgba(249,115,22,0.15)" },
+  reddit:     { label: "Reddit",      icon: "🔴", color: "#ef4444", bg: "rgba(239,68,68,0.15)" },
+  devto:      { label: "Dev.to",      icon: "💜", color: "#a78bfa", bg: "rgba(167,139,250,0.15)" },
+  lobsters:   { label: "Lobsters",    icon: "🦞", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
+  web:        { label: "Web",         icon: "🌐", color: "#64748b", bg: "rgba(100,116,139,0.15)" },
+};
+
+function detectPlatform(url?: string, platform?: string): string {
+  if (platform) return platform;
+  if (!url) return "web";
+  if (url.includes("reddit.com")) return "reddit";
+  if (url.includes("news.ycombinator.com")) return "hackernews";
+  if (url.includes("dev.to")) return "devto";
+  if (url.includes("lobste.rs")) return "lobsters";
+  return "web";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTE: Nó customizado (Cards limpos)
@@ -410,7 +429,7 @@ export default function GraphView() {
                 Dev Trends & Study Hub
               </h1>
               <p style={{ fontSize: "11px", color: "#94a3b8", margin: 0 }}>
-                Mapeamento Limpo de Tecnologias & Conteúdos de Estudo
+                HN · Reddit · Dev.to · Lobsters — clique em um tópico para ver resumo e fonte
               </p>
             </div>
           </div>
@@ -688,113 +707,187 @@ export default function GraphView() {
         )}
       </div>
 
-      {/* ── PAINEL DE DETALHES DA TECNOLOGIA SELECIONADA ── */}
-      {selectedNode && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "20px",
-            right: "20px",
-            width: "340px",
-            background: "rgba(15, 23, 42, 0.96)",
-            backdropFilter: "blur(20px)",
-            border: `2px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
-            borderRadius: "18px",
-            padding: "20px",
-            zIndex: 30,
-            boxShadow: `0 12px 40px rgba(0,0,0,0.85)`,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <span style={{ fontSize: "10px", color: (CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border, fontWeight: 700, textTransform: "uppercase" }}>
-                {selectedNode.category}
-              </span>
-              <h2 style={{ fontSize: "20px", fontWeight: 800, color: "#f8fafc", margin: "4px 0 0 0" }}>
-                {selectedNode.label}
-              </h2>
-            </div>
-            <button onClick={() => setSelectedNode(null)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: "22px" }}>×</button>
-          </div>
+      {/* ── MODAL DE DETALHES DO TÓPICO ── */}
+      {selectedNode && (() => {
+        const colors = CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default;
+        const platform = detectPlatform(selectedNode.sourceUrl, selectedNode.sourcePlatform);
+        const sourceInfo = SOURCE_PLATFORMS[platform] ?? SOURCE_PLATFORMS.web;
 
-          <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {/* Resumo/Contexto de Estudo */}
+        return (
+          <>
+            {/* Backdrop */}
+            <div
+              onClick={() => setSelectedNode(null)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(2, 6, 23, 0.75)",
+                backdropFilter: "blur(4px)",
+                zIndex: 40,
+              }}
+            />
+
+            {/* Painel */}
             <div
               style={{
-                background: "rgba(30, 41, 59, 0.6)",
-                borderLeft: `3px solid ${(CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default).border}`,
-                padding: "10px 12px",
-                borderRadius: "8px",
-                fontSize: "12px",
-                color: "#e2e8f0",
-                lineHeight: 1.4,
+                position: "fixed",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                width: "min(480px, 92vw)",
+                maxHeight: "85vh",
+                overflowY: "auto",
+                background: "rgba(15, 23, 42, 0.98)",
+                backdropFilter: "blur(20px)",
+                border: `2px solid ${colors.border}`,
+                borderRadius: "20px",
+                padding: "24px",
+                zIndex: 50,
+                boxShadow: `0 24px 60px rgba(0,0,0,0.9), 0 0 40px ${colors.glow}`,
               }}
             >
-              <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", marginBottom: "4px" }}>
-                💬 POR QUE ESTUDAR / CONTEXTO DA COMUNIDADE:
+              {/* Cabeçalho */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "6px" }}>
+                    <span style={{ fontSize: "10px", color: colors.border, fontWeight: 700, textTransform: "uppercase", background: colors.badgeBg, padding: "3px 8px", borderRadius: "6px" }}>
+                      {selectedNode.category}
+                    </span>
+                    <span style={{ fontSize: "10px", color: sourceInfo.color, fontWeight: 700, background: sourceInfo.bg, padding: "3px 8px", borderRadius: "6px" }}>
+                      {sourceInfo.icon} {sourceInfo.label}
+                    </span>
+                  </div>
+                  <h2 style={{ fontSize: "22px", fontWeight: 800, color: "#f8fafc", margin: 0, lineHeight: 1.2 }}>
+                    {selectedNode.label}
+                  </h2>
+                </div>
+                <button
+                  onClick={() => setSelectedNode(null)}
+                  style={{ background: "rgba(100,116,139,0.2)", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "18px", width: "32px", height: "32px", borderRadius: "8px", flexShrink: 0 }}
+                >×</button>
               </div>
-              {selectedNode.summary || "Tecnologia em ascensão no ecossistema dev com discussões recentes no Hacker News."}
-            </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Relevância em Alta:</span>
-              <span style={{ color: "#f59e0b", fontWeight: 700 }}>{selectedNode.hypeScore.toFixed(2)} 🔥</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "#64748b" }}>Discussões Rastreadas:</span>
-              <span style={{ color: "#f8fafc", fontWeight: 600 }}>{selectedNode.mentionCount} discussões</span>
-            </div>
-
-            {/* Links Diretos para Fontes Originais */}
-            <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {selectedNode.sourceUrl && (
-                <a
-                  href={selectedNode.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
+              <div style={{ marginTop: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                {/* Resumo */}
+                <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: "8px",
-                    padding: "10px",
+                    background: "rgba(30, 41, 59, 0.7)",
+                    borderLeft: `3px solid ${colors.border}`,
+                    padding: "14px 16px",
                     borderRadius: "10px",
-                    background: "rgba(249, 115, 22, 0.15)",
-                    border: "1px solid rgba(249, 115, 22, 0.4)",
-                    color: "#fdba74",
-                    fontSize: "12px",
-                    fontWeight: 700,
-                    textDecoration: "none",
                   }}
                 >
-                  🔥 Ler Discussão/Post Original (HN) ↗
-                </a>
-              )}
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", marginBottom: "6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                    Resumo
+                  </div>
+                  <p style={{ fontSize: "14px", color: "#e2e8f0", lineHeight: 1.6, margin: 0 }}>
+                    {selectedNode.summary || `${selectedNode.label} é uma tecnologia em ascensão no ecossistema dev, com discussões recentes na bolha de desenvolvimento.`}
+                  </p>
+                </div>
 
-              <a
-                href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  padding: "10px",
-                  borderRadius: "10px",
-                  background: "#7c3aed",
-                  color: "#fff",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  textDecoration: "none",
-                }}
-              >
-                📖 Documentação & Guias de Estudo ↗
-              </a>
+                {/* Fonte original */}
+                {(selectedNode.sourceTitle || selectedNode.sourceUrl) && (
+                  <div
+                    style={{
+                      background: sourceInfo.bg,
+                      border: `1px solid ${sourceInfo.color}40`,
+                      padding: "14px 16px",
+                      borderRadius: "10px",
+                    }}
+                  >
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: sourceInfo.color, marginBottom: "6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                      {sourceInfo.icon} Fonte — {sourceInfo.label}
+                    </div>
+                    {selectedNode.sourceTitle && (
+                      <p style={{ fontSize: "13px", color: "#f1f5f9", fontWeight: 600, margin: "0 0 8px 0", lineHeight: 1.4 }}>
+                        {selectedNode.sourceTitle}
+                      </p>
+                    )}
+                    {selectedNode.sourceUrl && (
+                      <a
+                        href={selectedNode.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "12px",
+                          color: sourceInfo.color,
+                          fontWeight: 600,
+                          textDecoration: "none",
+                        }}
+                      >
+                        Abrir discussão original ↗
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                {/* Métricas */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <div style={{ background: "rgba(30,41,59,0.5)", padding: "10px 14px", borderRadius: "10px", textAlign: "center" }}>
+                    <div style={{ fontSize: "18px", fontWeight: 800, color: "#f59e0b" }}>{selectedNode.hypeScore.toFixed(1)} 🔥</div>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Relevância</div>
+                  </div>
+                  <div style={{ background: "rgba(30,41,59,0.5)", padding: "10px 14px", borderRadius: "10px", textAlign: "center" }}>
+                    <div style={{ fontSize: "18px", fontWeight: 800, color: "#f8fafc" }}>{selectedNode.mentionCount}</div>
+                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Discussões</div>
+                  </div>
+                </div>
+
+                {/* Ações */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {selectedNode.sourceUrl && (
+                    <a
+                      href={selectedNode.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: "8px",
+                        padding: "12px",
+                        borderRadius: "10px",
+                        background: sourceInfo.bg,
+                        border: `1px solid ${sourceInfo.color}60`,
+                        color: sourceInfo.color,
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                      }}
+                    >
+                      {sourceInfo.icon} Ler no {sourceInfo.label} ↗
+                    </a>
+                  )}
+
+                  <a
+                    href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                      padding: "12px",
+                      borderRadius: "10px",
+                      background: "#7c3aed",
+                      color: "#fff",
+                      fontSize: "13px",
+                      fontWeight: 700,
+                      textDecoration: "none",
+                    }}
+                  >
+                    📖 Documentação & Tutoriais ↗
+                  </a>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        );
+      })()}
     </div>
   );
 }

@@ -8,9 +8,10 @@ public record NodeRequest(
         String category,
         String summary,
         String sourceUrl,
-        String sourceTitle
+        String sourceTitle,
+        String sourcePlatform
 ) {
     public NodeRequest(String label, String category) {
-        this(label, category, null, null, null);
+        this(label, category, null, null, null, null);
     }
 }

@@ -17,6 +17,7 @@ public class Node {
     private String summary;
     private String sourceUrl;
     private String sourceTitle;
+    private String sourcePlatform;
 
     public Node() {}
 
@@ -51,4 +52,6 @@ public class Node {
     public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     public String getSourceTitle() { return sourceTitle; }
     public void setSourceTitle(String sourceTitle) { this.sourceTitle = sourceTitle; }
+    public String getSourcePlatform() { return sourcePlatform; }
+    public void setSourcePlatform(String sourcePlatform) { this.sourcePlatform = sourcePlatform; }
 }

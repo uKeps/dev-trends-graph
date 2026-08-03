@@ -90,6 +90,7 @@ public class GraphController {
                         node.put("summary", n.getSummary());
                         node.put("sourceUrl", n.getSourceUrl());
                         node.put("sourceTitle", n.getSourceTitle());
+                        node.put("sourcePlatform", n.getSourcePlatform());
                         node.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
                         node.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
                         return node;
@@ -183,7 +184,7 @@ public class GraphController {
 
     /**
      * POST /api/v1/ingest
-     * Aciona manualmente o pipeline de ingestão do Hacker News.
+     * Aciona manualmente o pipeline de ingestão multi-fonte.
      * Protegido por header de API key básica para uso em webhooks.
      */
     @PostMapping("/api/v1/ingest")

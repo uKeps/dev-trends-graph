@@ -31,7 +31,7 @@ public class DevTrendsApplication {
      */
     @Scheduled(fixedRateString = "PT6H", initialDelayString = "PT2M")
     public void scheduledIngestion() {
-        log.info("[Scheduler] Iniciando ingestão agendada do Hacker News...");
+        log.info("[Scheduler] Iniciando ingestão agendada multi-fonte...");
         try {
             var result = graphExtractionService.runIngestionPipeline();
             log.info("[Scheduler] Ingestão concluída. Nós: {}, Arestas: {}",

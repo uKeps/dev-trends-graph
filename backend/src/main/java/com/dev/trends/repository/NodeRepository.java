@@ -39,6 +39,7 @@ public class NodeRepository {
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_url TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_title TEXT;");
+            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_platform VARCHAR(50);");
         } catch (Exception e) {
             // Ignora se já existirem
         }
@@ -51,26 +52,31 @@ public class NodeRepository {
         return upsertNode(label, category, null, null, null);
     }
 
-    /**
-     * Insere ou atualiza um nó com resumo e link de origem.
-     */
     public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle) {
+        return upsertNode(label, category, summary, sourceUrl, sourceTitle, null);
+    }
+
+    /**
+     * Insere ou atualiza um nó com resumo, link de origem e plataforma.
+     */
+    public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle, String sourcePlatform) {
         ensureSourceColumnsExist();
         
         String sql = """
-                INSERT INTO nodes (label, category, summary, source_url, source_title, hype_score, mention_count, last_seen)
-                VALUES (?, ?, ?, ?, ?, 1.0, 1, NOW())
+                INSERT INTO nodes (label, category, summary, source_url, source_title, source_platform, hype_score, mention_count, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, 1.0, 1, NOW())
                 ON CONFLICT (label) DO UPDATE
                     SET mention_count = nodes.mention_count + 1,
                         hype_score    = nodes.hype_score + 0.5,
                         last_seen     = NOW(),
-                        summary       = EXCLUDED.summary,
-                        source_url    = EXCLUDED.source_url,
-                        source_title  = EXCLUDED.source_title,
+                        summary       = COALESCE(NULLIF(EXCLUDED.summary, ''), nodes.summary),
+                        source_url    = COALESCE(NULLIF(EXCLUDED.source_url, ''), nodes.source_url),
+                        source_title  = COALESCE(NULLIF(EXCLUDED.source_title, ''), nodes.source_title),
+                        source_platform = COALESCE(NULLIF(EXCLUDED.source_platform, ''), nodes.source_platform),
                         category      = COALESCE(NULLIF(EXCLUDED.category, 'Technology'), nodes.category)
                 RETURNING id;
                 """;
-        return jdbc.queryForObject(sql, UUID.class, label, category, summary, sourceUrl, sourceTitle);
+        return jdbc.queryForObject(sql, UUID.class, label, category, summary, sourceUrl, sourceTitle, sourcePlatform);
     }
 
     /**
@@ -89,7 +95,7 @@ public class NodeRepository {
     public List<Node> findNodesSince(int days) {
         ensureSourceColumnsExist();
         String sql = """
-                SELECT id, label, category, summary, source_url, source_title, hype_score, first_seen, last_seen, mention_count
+                SELECT id, label, category, summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
                 WHERE last_seen >= NOW() - (? || ' days')::INTERVAL
                   AND LOWER(label) NOT IN (
@@ -112,6 +118,7 @@ public class NodeRepository {
             n.setSummary(rs.getString("summary"));
             n.setSourceUrl(rs.getString("source_url"));
             n.setSourceTitle(rs.getString("source_title"));
+            n.setSourcePlatform(rs.getString("source_platform"));
             return n;
         }, days);
     }

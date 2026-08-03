@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,7 +34,18 @@ public class GraphExtractionService {
 
     private static final String HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
-    private static final int MAX_ARTICLES = 30;
+    private static final String REDDIT_BASE = "https://www.reddit.com/r/%s/hot.json?limit=8";
+    private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=8";
+    private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
+    private static final String USER_AGENT = "dev-trends-graph/1.0 (tech trends aggregator)";
+
+    private static final List<String> REDDIT_SUBREDDITS = List.of(
+            "programming", "MachineLearning", "webdev", "devops",
+            "LocalLLaMA", "golang", "rust", "ExperiencedDevs", "artificial"
+    );
+    private static final List<String> DEVTO_TAGS = List.of("ai", "javascript", "rust", "devops", "webdev");
+
+    private static final int MAX_HN_ARTICLES = 25;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -62,75 +74,78 @@ public class GraphExtractionService {
                 .build();
     }
 
-    // Record para armazenar dados completos da matéria do HN
-    public record HnArticle(long id, String title, String url, String hnUrl) {}
+    /** Artigo coletado de qualquer plataforma. */
+    public record Article(String id, String title, String url, String discussionUrl, String platform) {}
 
     /**
-     * Pipeline principal: busca artigos do HN → extrai grafo via LLM → persiste no Supabase.
+     * Pipeline principal: busca artigos de múltiplas fontes → extrai grafo via LLM → persiste.
      */
     @Transactional
     public ExtractionResult runIngestionPipeline() {
-        log.info("Iniciando pipeline de ingestão do Hacker News com resumos específicos...");
+        log.info("Iniciando pipeline de ingestão multi-fonte...");
 
-        List<HnArticle> articles = fetchHackerNewsArticles();
+        List<Article> articles = fetchAllArticles();
         if (articles.isEmpty()) {
-            log.warn("Nenhum artigo coletado do Hacker News. Abortando pipeline.");
+            log.warn("Nenhum artigo coletado. Abortando pipeline.");
             return ExtractionResult.empty();
         }
-        log.info("Coletados {} artigos com links do Hacker News.", articles.size());
+        log.info("Coletados {} artigos de {} fontes.", articles.size(),
+                articles.stream().map(Article::platform).distinct().count());
 
         ExtractionResult extracted = callLlmForExtraction(articles);
-        log.info("LLM extraiu {} nós específicos e {} arestas.", extracted.nodes().size(), extracted.edges().size());
+        log.info("LLM extraiu {} nós e {} arestas.", extracted.nodes().size(), extracted.edges().size());
 
         int nodesCreated = persistNodes(extracted.nodes());
         int edgesCreated = persistEdges(extracted.edges());
 
-        log.info("Pipeline concluído. Nós persistidos: {}, Arestas persistidas: {}", nodesCreated, edgesCreated);
+        log.info("Pipeline concluído. Nós: {}, Arestas: {}", nodesCreated, edgesCreated);
         return new ExtractionResult(extracted.nodes(), extracted.edges());
     }
 
     // =========================================================
-    // FASE 1: Coleta do Hacker News (Com URLs reais)
+    // FASE 1: Coleta multi-fonte
     // =========================================================
 
-    private List<HnArticle> fetchHackerNewsArticles() {
+    private List<Article> fetchAllArticles() {
+        List<Article> all = new ArrayList<>();
+        all.addAll(fetchHackerNewsArticles());
+        all.addAll(fetchRedditArticles());
+        all.addAll(fetchDevToArticles());
+        all.addAll(fetchLobstersArticles());
+        return all;
+    }
+
+    private List<Article> fetchHackerNewsArticles() {
         try {
-            HttpRequest topStoriesReq = HttpRequest.newBuilder()
+            HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(HN_TOP_STORIES_URL))
                     .timeout(Duration.ofSeconds(10))
                     .GET()
                     .build();
 
-            HttpResponse<String> topStoriesResp = httpClient.send(
-                    topStoriesReq, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return List.of();
 
-            if (topStoriesResp.statusCode() != 200) {
-                log.error("Falha ao buscar top stories do HN. Status: {}", topStoriesResp.statusCode());
-                return List.of();
-            }
-
-            JsonNode idsNode = objectMapper.readTree(topStoriesResp.body());
+            JsonNode idsNode = objectMapper.readTree(resp.body());
             List<Long> storyIds = new ArrayList<>();
-            for (int i = 0; i < Math.min(MAX_ARTICLES, idsNode.size()); i++) {
+            for (int i = 0; i < Math.min(MAX_HN_ARTICLES, idsNode.size()); i++) {
                 storyIds.add(idsNode.get(i).asLong());
             }
 
-            List<CompletableFuture<HnArticle>> futures = storyIds.stream()
-                    .map(id -> CompletableFuture.supplyAsync(() -> fetchItemArticle(id), httpClient.executor().orElse(Runnable::run)))
-                    .toList();
-
-            return futures.stream()
+            return storyIds.stream()
+                    .map(id -> CompletableFuture.supplyAsync(() -> fetchHnItem(id),
+                            httpClient.executor().orElse(Runnable::run)))
                     .map(CompletableFuture::join)
-                    .filter(article -> article != null && article.title() != null && !article.title().isBlank())
+                    .filter(a -> a != null)
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
-            log.error("Erro ao coletar artigos do Hacker News: {}", e.getMessage(), e);
+            log.error("Erro ao coletar Hacker News: {}", e.getMessage());
             return List.of();
         }
     }
 
-    private HnArticle fetchItemArticle(long itemId) {
+    private Article fetchHnItem(long itemId) {
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(HN_ITEM_URL.formatted(itemId)))
@@ -143,9 +158,10 @@ public class GraphExtractionService {
                 JsonNode item = objectMapper.readTree(resp.body());
                 if (item.has("title")) {
                     String title = item.get("title").asText();
-                    String articleUrl = item.has("url") ? item.get("url").asText() : "https://news.ycombinator.com/item?id=" + itemId;
-                    String hnDiscussionUrl = "https://news.ycombinator.com/item?id=" + itemId;
-                    return new HnArticle(itemId, title, articleUrl, hnDiscussionUrl);
+                    String url = item.has("url") ? item.get("url").asText()
+                            : "https://news.ycombinator.com/item?id=" + itemId;
+                    String discussion = "https://news.ycombinator.com/item?id=" + itemId;
+                    return new Article(String.valueOf(itemId), title, url, discussion, "hackernews");
                 }
             }
         } catch (Exception e) {
@@ -154,111 +170,209 @@ public class GraphExtractionService {
         return null;
     }
 
+    private List<Article> fetchRedditArticles() {
+        List<Article> articles = new ArrayList<>();
+        for (String sub : REDDIT_SUBREDDITS) {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(REDDIT_BASE.formatted(sub)))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build();
+
+                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) continue;
+
+                JsonNode children = objectMapper.readTree(resp.body())
+                        .path("data").path("children");
+
+                for (JsonNode child : children) {
+                    JsonNode data = child.path("data");
+                    String title = data.path("title").asText("");
+                    if (title.isBlank()) continue;
+
+                    String permalink = data.path("permalink").asText("");
+                    String discussion = permalink.startsWith("http")
+                            ? permalink : "https://www.reddit.com" + permalink;
+                    String url = data.path("url").asText(discussion);
+                    String id = data.path("id").asText("");
+
+                    articles.add(new Article(id, title, url, discussion, "reddit"));
+                }
+            } catch (Exception e) {
+                log.debug("Erro ao coletar r/{}: {}", sub, e.getMessage());
+            }
+        }
+        log.info("Reddit: {} artigos coletados.", articles.size());
+        return articles;
+    }
+
+    private List<Article> fetchDevToArticles() {
+        List<Article> articles = new ArrayList<>();
+        for (String tag : DEVTO_TAGS) {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(DEVTO_URL.formatted(tag)))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build();
+
+                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) continue;
+
+                JsonNode items = objectMapper.readTree(resp.body());
+                if (!items.isArray()) continue;
+
+                for (JsonNode item : items) {
+                    String title = item.path("title").asText("");
+                    if (title.isBlank()) continue;
+
+                    String url = item.path("url").asText("");
+                    String id = String.valueOf(item.path("id").asLong());
+                    articles.add(new Article(id, title, url, url, "devto"));
+                }
+            } catch (Exception e) {
+                log.debug("Erro ao coletar Dev.to tag {}: {}", tag, e.getMessage());
+            }
+        }
+        log.info("Dev.to: {} artigos coletados.", articles.size());
+        return articles;
+    }
+
+    private List<Article> fetchLobstersArticles() {
+        List<Article> articles = new ArrayList<>();
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(LOBSTERS_URL))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("User-Agent", USER_AGENT)
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return List.of();
+
+            JsonNode items = objectMapper.readTree(resp.body());
+            if (!items.isArray()) return List.of();
+
+            for (JsonNode item : items) {
+                String title = item.path("title").asText("");
+                if (title.isBlank()) continue;
+
+                String url = item.path("url").asText("");
+                String commentsUrl = item.path("comments_url").asText(url);
+                String id = item.path("short_id").asText("");
+                articles.add(new Article(id, title, url, commentsUrl, "lobsters"));
+            }
+        } catch (Exception e) {
+            log.debug("Erro ao coletar Lobsters: {}", e.getMessage());
+        }
+        log.info("Lobsters: {} artigos coletados.", articles.size());
+        return articles;
+    }
+
     // =========================================================
-    // FASE 2: Extração via LLM (Resumos Específicos & Únicos)
+    // FASE 2: Extração via LLM
     // =========================================================
 
-    // Lista de termos genéricos banidos para garantir foco em materiais de estudo
     private static final List<String> BLACKLIST = List.of(
             "mac", "macos", "linux", "windows", "unix", "pc", "computer", "software",
             "hardware", "internet", "web", "news", "show hn", "ask hn", "pdf", "article",
             "blog", "system", "file", "code", "tech", "technology", "data", "app"
     );
 
-    private ExtractionResult callLlmForExtraction(List<HnArticle> articles) {
+    private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
-            log.warn("Chave de API do LLM não configurada. Usando extração baseada em palavras-chave.");
-            return extractByKeyword(articles.stream().map(HnArticle::title).toList());
+            log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
+            return extractByKeyword(articles.stream().map(Article::title).toList());
         }
 
         String articlesBlock = articles.stream()
-                .map(a -> "- TÍTULO: " + a.title() + " | LINK: " + a.hnUrl())
+                .map(a -> "- [" + a.platform().toUpperCase() + "] TÍTULO: " + a.title()
+                        + " | LINK: " + a.discussionUrl())
                 .collect(Collectors.joining("\n"));
 
         String systemPrompt = """
                 Você é um Curador Técnico Sênior especializado em Engenharia de Software e IA.
-                Analise a lista de matérias/discussões fornecidas e extraia as principais ferramentas, linguagens, frameworks e modelos com ALTO VALOR DE APRENDIZADO.
+                Analise a lista de matérias/discussões de Hacker News, Reddit, Dev.to e Lobsters.
+                Extraia ferramentas, linguagens, frameworks e modelos com ALTO VALOR DE APRENDIZADO.
                 
-                REGRAS OBRIGATÓRIAS DE CONTEÚDO:
+                REGRAS OBRIGATÓRIAS:
                 1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
-                2. CADA NÓ DEVE TER UM "summary" ÚNICO, TÉCNICO E ESPECÍFICO (1 a 2 frases em Português) explicando exatamente O QUE É essa tecnologia, O QUE ELA FAZ e POR QUE VALE A PENA ESTUDAR.
-                3. NUNCA REPITA o mesmo resumo para tecnologias diferentes! Cada tecnologia deve ter seu próprio resumo explicativo.
-                4. Associe cada nó ao "sourceUrl" do artigo correspondente.
+                2. CADA NÓ DEVE TER um "summary" ÚNICO e ESPECÍFICO (1-2 frases em Português) explicando O QUE É, O QUE FAZ e POR QUE VALE ESTUDAR.
+                3. NUNCA REPITA o mesmo resumo para tecnologias diferentes.
+                4. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
+                5. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
                 
-                EXEMPLO DE RESPOSTA ESPERADA:
+                Responda APENAS com JSON válido no formato:
                 {
                   "nodes": [
                     {
                       "label": "LangGraph",
                       "category": "Framework",
-                      "summary": "Framework em Python e TypeScript para criar agentes de IA com estado persistente e fluxos cíclicos avançados.",
-                      "sourceUrl": "https://news.ycombinator.com/item?id=39123456",
-                      "sourceTitle": "LangGraph v0.2 Release"
-                    },
-                    {
-                      "label": "vLLM",
-                      "category": "Tool",
-                      "summary": "Biblioteca de alta performance para inferência e servimento de LLMs com gerenciamento otimizado de memória via PagedAttention.",
-                      "sourceUrl": "https://news.ycombinator.com/item?id=39876543",
-                      "sourceTitle": "vLLM Fast LLM Serving"
+                      "summary": "Framework em Python para agentes de IA com estado persistente.",
+                      "sourceUrl": "https://...",
+                      "sourceTitle": "Título do post original",
+                      "sourcePlatform": "reddit"
                     }
                   ],
                   "edges": [
-                    {"source": "LangGraph", "target": "vLLM", "relation": "INTEGRATES_WITH"}
+                    {"source": "LangGraph", "target": "LangChain", "relation": "PART_OF"}
                   ]
                 }
                 """;
 
-        String userMessage = "Analise estas matérias do Hacker News e extraia o grafo de conhecimento com resumos únicos e específicos para estudo:\n\n" + articlesBlock;
+        String userMessage = "Analise estas matérias e extraia o grafo de conhecimento:\n\n" + articlesBlock;
 
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", llmModel,
                     "temperature", 0.1,
-                    "max_tokens", 2500,
+                    "max_tokens", 3000,
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
                             Map.of("role", "user", "content", userMessage)
                     )
             );
 
-            String bodyJson = objectMapper.writeValueAsString(requestBody);
-
             HttpRequest llmReq = HttpRequest.newBuilder()
                     .uri(URI.create(llmApiUrl))
-                    .timeout(Duration.ofSeconds(45))
+                    .timeout(Duration.ofSeconds(60))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + llmApiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestBody)))
                     .build();
 
             HttpResponse<String> llmResp = httpClient.send(llmReq, HttpResponse.BodyHandlers.ofString());
 
             if (llmResp.statusCode() != 200) {
-                log.error("LLM API retornou status {}. Body: {}", llmResp.statusCode(), llmResp.body());
-                return extractByKeyword(articles.stream().map(HnArticle::title).toList());
+                log.error("LLM API status {}. Body: {}", llmResp.statusCode(), llmResp.body());
+                return extractByKeyword(articles.stream().map(Article::title).toList());
             }
 
             return parseLlmResponse(llmResp.body(), articles);
 
         } catch (Exception e) {
             log.error("Erro na chamada ao LLM: {}", e.getMessage(), e);
-            return extractByKeyword(articles.stream().map(HnArticle::title).toList());
+            return extractByKeyword(articles.stream().map(Article::title).toList());
         }
     }
 
-    private ExtractionResult parseLlmResponse(String responseBody, List<HnArticle> articles) {
+    private ExtractionResult parseLlmResponse(String responseBody, List<Article> articles) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
-            String content = root
-                    .path("choices").get(0)
-                    .path("message")
-                    .path("content")
-                    .asText();
-
+            String content = root.path("choices").get(0).path("message").path("content").asText();
             content = content.replaceAll("```json", "").replaceAll("```", "").trim();
 
             JsonNode graphJson = objectMapper.readTree(content);
+
+            // Mapa de URLs por plataforma para fallback
+            Map<String, Article> urlIndex = new LinkedHashMap<>();
+            for (Article a : articles) {
+                urlIndex.put(a.discussionUrl(), a);
+            }
 
             List<NodeRequest> nodes = StreamSupport.stream(
                             graphJson.path("nodes").spliterator(), false)
@@ -267,16 +381,26 @@ public class GraphExtractionService {
                         String category = n.path("category").asText("Technology").trim();
                         String summary = n.path("summary").asText("").trim();
                         String sourceUrl = n.path("sourceUrl").asText("").trim();
-                        String sourceTitle = n.path("sourceTitle").asText("Discussão no Hacker News").trim();
+                        String sourceTitle = n.path("sourceTitle").asText("").trim();
+                        String sourcePlatform = n.path("sourcePlatform").asText("").trim();
 
                         if (summary.isBlank() || summary.length() < 15) {
                             summary = buildDefaultSummary(label, category);
                         }
-                        if (sourceUrl.isBlank()) {
-                            sourceUrl = articles.isEmpty() ? "https://news.ycombinator.com" : articles.get(0).hnUrl();
+                        if (sourceUrl.isBlank() && !articles.isEmpty()) {
+                            Article fallback = articles.get(0);
+                            sourceUrl = fallback.discussionUrl();
+                            sourceTitle = fallback.title();
+                            sourcePlatform = fallback.platform();
+                        }
+                        if (sourcePlatform.isBlank()) {
+                            sourcePlatform = detectPlatformFromUrl(sourceUrl);
+                        }
+                        if (sourceTitle.isBlank()) {
+                            sourceTitle = "Discussão na comunidade dev";
                         }
 
-                        return new NodeRequest(label, category, summary, sourceUrl, sourceTitle);
+                        return new NodeRequest(label, category, summary, sourceUrl, sourceTitle, sourcePlatform);
                     })
                     .filter(n -> !n.label().isBlank())
                     .filter(n -> !isBlacklisted(n.label()))
@@ -300,6 +424,15 @@ public class GraphExtractionService {
         }
     }
 
+    private String detectPlatformFromUrl(String url) {
+        if (url == null || url.isBlank()) return "web";
+        if (url.contains("reddit.com")) return "reddit";
+        if (url.contains("news.ycombinator.com")) return "hackernews";
+        if (url.contains("dev.to")) return "devto";
+        if (url.contains("lobste.rs")) return "lobsters";
+        return "web";
+    }
+
     private String buildDefaultSummary(String label, String category) {
         return switch (category.toLowerCase()) {
             case "framework" -> label + " é um framework em alta focado em escalabilidade, arquitetura limpa e produtividade.";
@@ -316,9 +449,6 @@ public class GraphExtractionService {
         return BLACKLIST.stream().anyMatch(b -> lower.equals(b) || lower.startsWith(b + " ") || lower.endsWith(" " + b));
     }
 
-    /**
-     * Fallback: extração simples por palavras-chave quando o LLM não está disponível.
-     */
     private ExtractionResult extractByKeyword(List<String> titles) {
         List<String> techKeywords = List.of(
                 "AI", "LLM", "GPT", "Claude", "Gemini", "Llama", "Python", "Java", "Rust",
@@ -336,7 +466,6 @@ public class GraphExtractionService {
                 .map(e -> new NodeRequest(e.getKey(), categorize(e.getKey())))
                 .toList();
 
-        // Cria arestas básicas para nós que co-ocorrem nos mesmos títulos
         List<EdgeRequest> edges = new ArrayList<>();
         List<String> mentionedTerms = new ArrayList<>(mentionCounts.keySet());
         for (int i = 0; i < Math.min(mentionedTerms.size() - 1, 15); i++) {
@@ -359,14 +488,15 @@ public class GraphExtractionService {
     }
 
     // =========================================================
-    // FASE 3: Persistência no Supabase via Spring Data
+    // FASE 3: Persistência
     // =========================================================
 
     private int persistNodes(List<NodeRequest> nodes) {
         int count = 0;
         for (NodeRequest node : nodes) {
             try {
-                nodeRepository.upsertNode(node.label(), node.category(), node.summary(), node.sourceUrl(), node.sourceTitle());
+                nodeRepository.upsertNode(node.label(), node.category(), node.summary(),
+                        node.sourceUrl(), node.sourceTitle(), node.sourcePlatform());
                 count++;
             } catch (Exception e) {
                 log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());
@@ -383,13 +513,11 @@ public class GraphExtractionService {
                 UUID targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
 
                 if (sourceId == null) {
-                    log.warn("Nó de origem '{}' não encontrado. Criando com categoria 'Concept'.", edge.source());
-                    nodeRepository.upsertNode(edge.source(), "Concept", "Conceito em destaque no ecossistema.", null, null);
+                    nodeRepository.upsertNode(edge.source(), "Concept", "Conceito em destaque no ecossistema.", null, null, null);
                     sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
                 }
                 if (targetId == null) {
-                    log.warn("Nó de destino '{}' não encontrado. Criando com categoria 'Concept'.", edge.target());
-                    nodeRepository.upsertNode(edge.target(), "Concept", "Conceito em destaque no ecossistema.", null, null);
+                    nodeRepository.upsertNode(edge.target(), "Concept", "Conceito em destaque no ecossistema.", null, null, null);
                     targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
                 }
 

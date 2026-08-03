@@ -11,8 +11,8 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Dev Trends Graph — Mapeador de Tendências da Bolha Dev & IA",
   description:
-    "Visualização interativa em grafos das principais tendências e tecnologias emergentes no ecossistema de desenvolvimento e IA, extraídas do Hacker News via LLM.",
-  keywords: ["IA", "tendências tecnológicas", "grafo", "Hacker News", "desenvolvimento", "LLM"],
+    "Visualização interativa em grafos das principais tendências e tecnologias emergentes no ecossistema de desenvolvimento e IA, extraídas de Hacker News, Reddit, Dev.to e Lobsters via LLM.",
+  keywords: ["IA", "tendências tecnológicas", "grafo", "Hacker News", "Reddit", "Dev.to", "desenvolvimento", "LLM"],
   authors: [{ name: "Dev Trends Graph" }],
   openGraph: {
     title: "Dev Trends Graph",
