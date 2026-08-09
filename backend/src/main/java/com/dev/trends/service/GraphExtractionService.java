@@ -61,6 +61,8 @@ public class GraphExtractionService {
     @Value("${openai.model:openai/gpt-oss-20b}")
     private String llmModel;
 
+    private static final String FALLBACK_LLM_MODEL = "qwen/qwen3.6-27b";
+
     public GraphExtractionService(
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
@@ -283,49 +285,14 @@ public class GraphExtractionService {
             "blog", "system", "file", "code", "tech", "technology", "data", "app"
     );
 
-    private ExtractionResult callLlmForExtraction(List<Article> articles) {
-        if (llmApiKey == null || llmApiKey.isBlank()) {
-            log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
-            return extractByKeyword(articles);
-        }
-
-        String articlesBlock = articles.stream()
-                .map(a -> "- [" + a.platform().toUpperCase() + "] TÍTULO: " + a.title()
-                        + " | LINK: " + a.discussionUrl())
-                .collect(Collectors.joining("\n"));
-
-        String systemPrompt = """
-                Você é um Curador Técnico Sênior especializado em Engenharia de Software e IA.
-                Analise a lista de matérias/discussões de Hacker News, Reddit, Dev.to e Lobsters.
-                Extraia ferramentas, linguagens, frameworks e modelos com ALTO VALOR DE APRENDIZADO.
-                
-                REGRAS OBRIGATÓRIAS:
-                1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
-                2. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
-                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
-                
-                Responda APENAS com JSON válido no formato:
-                {
-                  "nodes": [
-                    {
-                      "label": "LangGraph",
-                      "category": "Framework",
-                      "sourceUrl": "https://...",
-                      "sourceTitle": "Título do post original",
-                      "sourcePlatform": "reddit"
-                    }
-                  ],
-                  "edges": [
-                    {"source": "LangGraph", "target": "LangChain", "relation": "PART_OF"}
-                  ]
-                }
-                """;
-
-        String userMessage = "Analise estas matérias e extraia o grafo de conhecimento:\n\n" + articlesBlock;
-
+    /**
+     * Faz uma chamada ao LLM com o modelo especificado e retorna o texto já limpo do campo
+     * "content" (sem fences de markdown). Retorna null em caso de erro de rede/API.
+     */
+    private String requestLlmContent(String model, String systemPrompt, String userMessage) {
         try {
             Map<String, Object> requestBody = Map.of(
-                    "model", llmModel,
+                    "model", model,
                     "temperature", 0.1,
                     "max_tokens", 4000,
                     "reasoning_effort", "low",
@@ -346,21 +313,79 @@ public class GraphExtractionService {
             HttpResponse<String> llmResp = httpClient.send(llmReq, HttpResponse.BodyHandlers.ofString());
 
             if (llmResp.statusCode() != 200) {
-                log.error("LLM API status {}. Body: {}", llmResp.statusCode(), llmResp.body());
-                return extractByKeyword(articles);
+                log.error("LLM API ({}) status {}. Body: {}", model, llmResp.statusCode(), llmResp.body());
+                return null;
             }
 
-            JsonNode debugRoot = objectMapper.readTree(llmResp.body());
-            String debugContent = debugRoot.path("choices").get(0).path("message").path("content").asText("");
-            log.info("Resposta bruta do LLM ({} chars): {}", debugContent.length(),
-                    debugContent.length() > 200 ? debugContent.substring(0, 200) + "..." : debugContent);
-
-            return parseLlmResponse(llmResp.body(), articles);
+            JsonNode root = objectMapper.readTree(llmResp.body());
+            String content = root.path("choices").get(0).path("message").path("content").asText("");
+            content = content.replaceAll("```json", "").replaceAll("```", "").trim();
+            log.info("Resposta bruta do LLM {} ({} chars): {}", model, content.length(),
+                    content.length() > 200 ? content.substring(0, 200) + "..." : content);
+            return content;
 
         } catch (Exception e) {
-            log.error("Erro na chamada ao LLM: {}", e.getMessage(), e);
+            log.error("Erro na chamada ao LLM ({}): {}", model, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private ExtractionResult callLlmForExtraction(List<Article> articles) {
+        if (llmApiKey == null || llmApiKey.isBlank()) {
+            log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
             return extractByKeyword(articles);
         }
+
+        String articlesBlock = articles.stream()
+                .map(a -> "- [" + a.platform().toUpperCase() + "] TÍTULO: " + a.title()
+                        + " | LINK: " + a.discussionUrl())
+                .collect(Collectors.joining("\n"));
+
+        log.debug("Artigos enviados ao LLM:\n{}", articlesBlock);
+
+        String systemPrompt = """
+                Você é um Curador Técnico Sênior especializado em Engenharia de Software e IA.
+                Analise a lista de matérias/discussões de Hacker News, Reddit, Dev.to e Lobsters.
+                Extraia ferramentas, linguagens, frameworks e modelos com ALTO VALOR DE APRENDIZADO.
+
+                REGRAS OBRIGATÓRIAS:
+                1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
+                2. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
+                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
+
+                Responda APENAS com JSON válido no formato:
+                {
+                  "nodes": [
+                    {
+                      "label": "LangGraph",
+                      "category": "Framework",
+                      "sourceUrl": "https://...",
+                      "sourceTitle": "Título do post original",
+                      "sourcePlatform": "reddit"
+                    }
+                  ],
+                  "edges": [
+                    {"source": "LangGraph", "target": "LangChain", "relation": "PART_OF"}
+                  ]
+                }
+                """;
+
+        String userMessage = "Analise estas matérias e extraia o grafo de conhecimento:\n\n" + articlesBlock;
+
+        String content = requestLlmContent(llmModel, systemPrompt, userMessage);
+
+        if (content == null || !content.trim().startsWith("{")) {
+            log.warn("Modelo {} não retornou JSON válido (resposta: '{}'). Tentando modelo de fallback {}.",
+                    llmModel, content, FALLBACK_LLM_MODEL);
+            content = requestLlmContent(FALLBACK_LLM_MODEL, systemPrompt, userMessage);
+        }
+
+        if (content == null || !content.trim().startsWith("{")) {
+            log.error("Nenhum modelo retornou JSON válido. Caindo para extração por palavras-chave. Última resposta: '{}'", content);
+            return extractByKeyword(articles);
+        }
+
+        return parseLlmResponse(content, articles);
     }
 
     /**
@@ -375,12 +400,8 @@ public class GraphExtractionService {
                 .orElse(null);
     }
 
-    private ExtractionResult parseLlmResponse(String responseBody, List<Article> articles) {
+    private ExtractionResult parseLlmResponse(String content, List<Article> articles) {
         try {
-            JsonNode root = objectMapper.readTree(responseBody);
-            String content = root.path("choices").get(0).path("message").path("content").asText();
-            content = content.replaceAll("```json", "").replaceAll("```", "").trim();
-
             JsonNode graphJson = objectMapper.readTree(content);
 
             // Mapa de URLs por plataforma para fallback
