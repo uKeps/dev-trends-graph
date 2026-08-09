@@ -1,71 +1,53 @@
-# 🌐 Dev Trends Graph
-> Mapeador de Tendências da Bolha Dev & IA em Grafos Interativos
+# Dev Trends Graph
 
-Visualização em tempo real das principais tecnologias, frameworks e conceitos
-emergentes no ecossistema de desenvolvimento, extraídos automaticamente do
-Hacker News via LLM e exibidos em um grafo de conhecimento interativo.
+Mapeador de tendências da comunidade de desenvolvimento e inteligência artificial. A aplicação realiza a ingestão e extração de tópicos emergentes a partir de fontes como Hacker News, Reddit, Dev.to e Lobsters, apresentando os conceitos em grafos e grids organizados por categorias.
 
-## 🏗️ Arquitetura
+## Arquitetura
 
-```
-Hacker News API
-      ↓
-Java 21 (Spring Boot 3) — Render
-      ↓  (extração via LLM)
-Supabase (PostgreSQL + pgvector)
-      ↓  (API REST)
-Next.js + React Flow — Vercel
-```
+- **Backend**: Java 21 com Spring Boot 3 (hospedado no Render).
+- **Banco de Dados**: PostgreSQL com pgvector no Supabase.
+- **Frontend**: Next.js 14 com React Flow e Tailwind CSS (hospedado na Vercel).
+- **Provedor LLM**: Groq API (`openai/gpt-oss-20b`).
 
-## 🚀 Stack Técnica
+## Estrutura do Projeto
 
-| Camada     | Tecnologia              | Hospedagem |
-|------------|-------------------------|------------|
-| Backend    | Java 21 + Spring Boot 3 | Render     |
-| Database   | PostgreSQL + pgvector   | Supabase   |
-| Frontend   | Next.js 14 + React Flow | Vercel     |
-| CI/CD      | GitHub Actions          | —          |
+- `backend/`: API REST em Spring Boot responsável pela coleta de artigos, extração de conceitos e persistência no banco de dados.
+- `frontend/`: Aplicação web para visualização interativa do grafo, busca e consulta de resumos por tecnologia.
+- `.github/workflows/`: Pipeline CI/CD para testes, validação de Docker build e deploy.
 
-## ⚙️ Configuração
+## Endpoints Principais
 
-### 1. Banco de Dados (Supabase)
-Execute `backend/src/main/resources/schema.sql` no SQL Editor do Supabase.
+- `GET /health`: Health check da API.
+- `GET /api/v1/graph?days=7`: Retorna nós e arestas filtrados por período.
+- `GET /api/v1/trends`: Retorna os tópicos com maior pontuação de relevância.
+- `GET /api/v1/nodes/{id}/summary`: Retorna ou gera dinamicamente o resumo técnico de um tópico específico.
+- `POST /api/v1/ingest`: Dispara manualmente o pipeline de ingestão de dados.
 
-### 2. Backend (Render)
-Configure as variáveis de ambiente:
-```
-DATABASE_URL=jdbc:postgresql://<host>:5432/<db>?sslmode=require
-DB_PASSWORD=<senha>
-GROQ_API_KEY=gsk_...
-```
+## Execução Local
 
-### 3. Frontend (Vercel)
-Configure a variável de ambiente:
-```
-NEXT_PUBLIC_API_URL=https://sua-api.onrender.com
-```
-
-### 4. GitHub Actions (Secrets)
-```
-RENDER_DEPLOY_HOOK_URL  → Webhook do Render
-VERCEL_TOKEN            → Token da Vercel
-VERCEL_ORG_ID           → ID da organização Vercel
-VERCEL_PROJECT_ID       → ID do projeto Vercel
-NEXT_PUBLIC_API_URL     → URL do backend no Render
-```
-
-## 📦 Desenvolvimento Local
+### Backend
 
 ```bash
-# Backend
 cd backend
 mvn spring-boot:run
+```
 
-# Frontend
+Variáveis de ambiente requeridas:
+- `DATABASE_URL`
+- `DB_PASSWORD`
+- `GROQ_API_KEY`
+
+### Frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-## 📄 Licença
+Variável de ambiente requerida:
+- `NEXT_PUBLIC_API_URL`
+
+## Licença
+
 MIT
