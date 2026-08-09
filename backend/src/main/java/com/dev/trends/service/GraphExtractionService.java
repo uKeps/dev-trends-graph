@@ -286,7 +286,7 @@ public class GraphExtractionService {
     private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
-            return extractByKeyword(articles.stream().map(Article::title).toList());
+            return extractByKeyword(articles);
         }
 
         String articlesBlock = articles.stream()
@@ -346,15 +346,27 @@ public class GraphExtractionService {
 
             if (llmResp.statusCode() != 200) {
                 log.error("LLM API status {}. Body: {}", llmResp.statusCode(), llmResp.body());
-                return extractByKeyword(articles.stream().map(Article::title).toList());
+                return extractByKeyword(articles);
             }
 
             return parseLlmResponse(llmResp.body(), articles);
 
         } catch (Exception e) {
             log.error("Erro na chamada ao LLM: {}", e.getMessage(), e);
-            return extractByKeyword(articles.stream().map(Article::title).toList());
+            return extractByKeyword(articles);
         }
+    }
+
+    /**
+     * Encontra o artigo original cujo título menciona o label extraído.
+     * Usado para atribuir fonte real de forma confiável, sem depender do LLM reproduzir URLs.
+     */
+    private Article findBestMatchingArticle(String label, List<Article> articles) {
+        String needle = label.toLowerCase();
+        return articles.stream()
+                .filter(a -> a.title().toLowerCase().contains(needle))
+                .findFirst()
+                .orElse(null);
     }
 
     private ExtractionResult parseLlmResponse(String responseBody, List<Article> articles) {
@@ -382,12 +394,21 @@ public class GraphExtractionService {
                         String sourceTitle = n.path("sourceTitle").asText("").trim();
                         String sourcePlatform = n.path("sourcePlatform").asText("").trim();
 
-                        if (sourceUrl.isBlank() && !articles.isEmpty()) {
-                            Article fallback = articles.get(0);
-                            sourceUrl = fallback.discussionUrl();
-                            sourceTitle = fallback.title();
-                            sourcePlatform = fallback.platform();
+                        // Não confia cegamente na URL que o LLM devolveu — só aceita se ela existir de fato
+                        // entre os artigos coletados (evita URL alucinada).
+                        if (!sourceUrl.isBlank() && !urlIndex.containsKey(sourceUrl)) {
+                            sourceUrl = "";
                         }
+
+                        if (sourceUrl.isBlank()) {
+                            Article match = findBestMatchingArticle(label, articles);
+                            if (match != null) {
+                                sourceUrl = match.discussionUrl();
+                                sourceTitle = match.title();
+                                sourcePlatform = match.platform();
+                            }
+                        }
+
                         if (sourcePlatform.isBlank()) {
                             sourcePlatform = detectPlatformFromUrl(sourceUrl);
                         }
@@ -501,7 +522,8 @@ public class GraphExtractionService {
         return BLACKLIST.stream().anyMatch(b -> lower.equals(b) || lower.startsWith(b + " ") || lower.endsWith(" " + b));
     }
 
-    private ExtractionResult extractByKeyword(List<String> titles) {
+    private ExtractionResult extractByKeyword(List<Article> articles) {
+        List<String> titles = articles.stream().map(Article::title).toList();
         List<String> techKeywords = List.of(
                 "AI", "LLM", "GPT", "Claude", "Gemini", "Llama", "Python", "Java", "Rust",
                 "TypeScript", "React", "Next.js", "Kubernetes", "Docker", "AWS", "GCP",
@@ -515,7 +537,14 @@ public class GraphExtractionService {
                 .collect(Collectors.groupingBy(kw -> kw, Collectors.counting()));
 
         List<NodeRequest> nodes = mentionCounts.entrySet().stream()
-                .map(e -> new NodeRequest(e.getKey(), categorize(e.getKey())))
+                .map(e -> {
+                    Article match = findBestMatchingArticle(e.getKey(), articles);
+                    if (match != null) {
+                        return new NodeRequest(e.getKey(), categorize(e.getKey()), null,
+                                match.discussionUrl(), match.title(), match.platform());
+                    }
+                    return new NodeRequest(e.getKey(), categorize(e.getKey()));
+                })
                 .toList();
 
         List<EdgeRequest> edges = new ArrayList<>();
