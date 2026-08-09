@@ -17,8 +17,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,8 @@ public class GraphExtractionService {
     private static final String HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
     private static final String REDDIT_BASE = "https://www.reddit.com/r/%s/hot.json?limit=4";
+    private static final String REDDIT_OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
+    private static final String REDDIT_OAUTH_BASE = "https://oauth.reddit.com/r/%s/hot?limit=4";
     private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=4";
     private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
     private static final String USER_AGENT = "dev-trends-graph/1.0 (tech trends aggregator)";
@@ -62,6 +66,12 @@ public class GraphExtractionService {
     private String llmModel;
 
     private static final String FALLBACK_LLM_MODEL = "qwen/qwen3.6-27b";
+
+    @Value("${reddit.client.id:${REDDIT_CLIENT_ID:}}")
+    private String redditClientId;
+
+    @Value("${reddit.client.secret:${REDDIT_CLIENT_SECRET:}}")
+    private String redditClientSecret;
 
     public GraphExtractionService(
             NodeRepository nodeRepository,
@@ -172,19 +182,62 @@ public class GraphExtractionService {
         return null;
     }
 
+    /**
+     * Obtém token de acesso OAuth2 do Reddit via client_credentials.
+     * Retorna null se credenciais não estiverem configuradas ou a autenticação falhar.
+     */
+    private String fetchRedditAccessToken() {
+        if (redditClientId == null || redditClientId.isBlank()
+                || redditClientSecret == null || redditClientSecret.isBlank()) {
+            return null;
+        }
+        try {
+            String credentials = Base64.getEncoder().encodeToString(
+                    (redditClientId + ":" + redditClientSecret).getBytes(StandardCharsets.UTF_8));
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(REDDIT_OAUTH_TOKEN_URL))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Authorization", "Basic " + credentials)
+                    .header("Content-Type", "application/x-www-form-urlencoded")
+                    .header("User-Agent", USER_AGENT)
+                    .POST(HttpRequest.BodyPublishers.ofString("grant_type=client_credentials"))
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                log.warn("Falha ao obter token OAuth do Reddit. Status {}: {}", resp.statusCode(), resp.body());
+                return null;
+            }
+            return objectMapper.readTree(resp.body()).path("access_token").asText(null);
+        } catch (Exception e) {
+            log.warn("Erro ao autenticar no Reddit: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private List<Article> fetchRedditArticles() {
         List<Article> articles = new ArrayList<>();
+        String accessToken = fetchRedditAccessToken();
+        String urlTemplate = accessToken != null ? REDDIT_OAUTH_BASE : REDDIT_BASE;
+
         for (String sub : REDDIT_SUBREDDITS) {
             try {
-                HttpRequest req = HttpRequest.newBuilder()
-                        .uri(URI.create(REDDIT_BASE.formatted(sub)))
+                HttpRequest.Builder builder = HttpRequest.newBuilder()
+                        .uri(URI.create(urlTemplate.formatted(sub)))
                         .timeout(Duration.ofSeconds(10))
                         .header("User-Agent", USER_AGENT)
-                        .GET()
-                        .build();
+                        .GET();
 
-                HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() != 200) continue;
+                if (accessToken != null) {
+                    builder.header("Authorization", "Bearer " + accessToken);
+                }
+
+                HttpResponse<String> resp = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200) {
+                    log.debug("Reddit r/{} status {}", sub, resp.statusCode());
+                    continue;
+                }
 
                 JsonNode children = objectMapper.readTree(resp.body())
                         .path("data").path("children");
@@ -206,7 +259,8 @@ public class GraphExtractionService {
                 log.debug("Erro ao coletar r/{}: {}", sub, e.getMessage());
             }
         }
-        log.info("Reddit: {} artigos coletados.", articles.size());
+        log.info("Reddit: {} artigos coletados ({}).", articles.size(),
+                accessToken != null ? "via OAuth" : "endpoint público, sem OAuth configurado");
         return articles;
     }
 
