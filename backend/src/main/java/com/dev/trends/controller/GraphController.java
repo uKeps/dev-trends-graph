@@ -211,4 +211,34 @@ public class GraphController {
                     .body(Map.of("status", "error", "message", e.getMessage()));
         }
     }
+
+    // =========================================================
+    // NODE SUMMARY — resumo técnico por demanda
+    // =========================================================
+
+    /**
+     * GET /api/v1/nodes/{id}/summary
+     * Retorna ou gera dinamicamente o resumo técnico de um nó específico.
+     */
+    @GetMapping("/api/v1/nodes/{id}/summary")
+    public ResponseEntity<Map<String, Object>> getNodeSummary(@PathVariable UUID id) {
+        Node node = nodeRepository.findById(id).orElse(null);
+        if (node == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        if (node.getSummary() != null && !node.getSummary().isBlank()) {
+            return ResponseEntity.ok(Map.of("summary", node.getSummary(), "cached", true));
+        }
+
+        String summary = graphExtractionService.generateTopicSummary(
+                node.getLabel(), node.getCategory(), node.getSourceTitle(), node.getSourceUrl());
+
+        if (summary != null && !summary.isBlank()) {
+            nodeRepository.updateSummary(id, summary);
+            return ResponseEntity.ok(Map.of("summary", summary, "cached", false));
+        }
+
+        return ResponseEntity.ok(Map.of("summary", "", "cached", false));
+    }
 }

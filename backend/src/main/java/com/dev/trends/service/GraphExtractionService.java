@@ -34,8 +34,8 @@ public class GraphExtractionService {
 
     private static final String HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
-    private static final String REDDIT_BASE = "https://www.reddit.com/r/%s/hot.json?limit=8";
-    private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=8";
+    private static final String REDDIT_BASE = "https://www.reddit.com/r/%s/hot.json?limit=4";
+    private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=4";
     private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
     private static final String USER_AGENT = "dev-trends-graph/1.0 (tech trends aggregator)";
 
@@ -58,7 +58,7 @@ public class GraphExtractionService {
     @Value("${openai.api.url:https://api.groq.com/openai/v1/chat/completions}")
     private String llmApiUrl;
 
-    @Value("${openai.model:llama-3.1-8b-instant}")
+    @Value("${openai.model:openai/gpt-oss-20b}")
     private String llmModel;
 
     public GraphExtractionService(
@@ -301,10 +301,8 @@ public class GraphExtractionService {
                 
                 REGRAS OBRIGATÓRIAS:
                 1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
-                2. CADA NÓ DEVE TER um "summary" ÚNICO e ESPECÍFICO (1-2 frases em Português) explicando O QUE É, O QUE FAZ e POR QUE VALE ESTUDAR.
-                3. NUNCA REPITA o mesmo resumo para tecnologias diferentes.
-                4. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
-                5. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
+                2. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
+                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
                 
                 Responda APENAS com JSON válido no formato:
                 {
@@ -312,7 +310,6 @@ public class GraphExtractionService {
                     {
                       "label": "LangGraph",
                       "category": "Framework",
-                      "summary": "Framework em Python para agentes de IA com estado persistente.",
                       "sourceUrl": "https://...",
                       "sourceTitle": "Título do post original",
                       "sourcePlatform": "reddit"
@@ -330,7 +327,7 @@ public class GraphExtractionService {
             Map<String, Object> requestBody = Map.of(
                     "model", llmModel,
                     "temperature", 0.1,
-                    "max_tokens", 3000,
+                    "max_tokens", 1200,
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
                             Map.of("role", "user", "content", userMessage)
@@ -379,14 +376,12 @@ public class GraphExtractionService {
                     .map(n -> {
                         String label = n.path("label").asText("Unknown").trim();
                         String category = n.path("category").asText("Technology").trim();
-                        String summary = n.path("summary").asText("").trim();
+                        String summary = n.has("summary") && !n.path("summary").asText("").trim().isBlank() 
+                                ? n.path("summary").asText().trim() : null;
                         String sourceUrl = n.path("sourceUrl").asText("").trim();
                         String sourceTitle = n.path("sourceTitle").asText("").trim();
                         String sourcePlatform = n.path("sourcePlatform").asText("").trim();
 
-                        if (summary.isBlank() || summary.length() < 15) {
-                            summary = buildDefaultSummary(label, category);
-                        }
                         if (sourceUrl.isBlank() && !articles.isEmpty()) {
                             Article fallback = articles.get(0);
                             sourceUrl = fallback.discussionUrl();
@@ -422,6 +417,63 @@ public class GraphExtractionService {
             log.error("Falha ao parsear resposta do LLM: {}", e.getMessage(), e);
             return ExtractionResult.empty();
         }
+    }
+
+    /**
+     * Gera um resumo técnico e específico em português para UMA tecnologia sob demanda.
+     */
+    public String generateTopicSummary(String label, String category, String sourceTitle, String sourceUrl) {
+        if (llmApiKey == null || llmApiKey.isBlank()) {
+            log.warn("Chave de API do LLM não configurada. Não é possível gerar resumo sob demanda.");
+            return null;
+        }
+
+        String system = """
+                Explique tecnicamente UMA tecnologia específica em 2-3 frases em português.
+                Diga o que ela É e o que ela FAZ — não fale sobre "tendências" ou "discussões recentes".
+
+                RUIM (não faça isso): "React é uma tecnologia em ascensão no ecossistema dev, com discussões recentes na bolha de desenvolvimento."
+
+                BOM: "React é uma biblioteca JavaScript para construir interfaces declarativas baseadas em componentes, usando um DOM virtual para otimizar re-renderizações."
+                """;
+        String user = "Tecnologia: %s\nCategoria: %s\nContexto (artigo que a mencionou): \"%s\" (%s)"
+                .formatted(label, category, sourceTitle != null ? sourceTitle : "", sourceUrl != null ? sourceUrl : "");
+
+        try {
+            Map<String, Object> requestBody = Map.of(
+                    "model", llmModel,
+                    "temperature", 0.4,
+                    "max_tokens", 400,
+                    "messages", List.of(
+                            Map.of("role", "system", "content", system),
+                            Map.of("role", "user", "content", user)
+                    )
+            );
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(llmApiUrl))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + llmApiKey)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestBody)))
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+            if (resp.statusCode() == 200) {
+                JsonNode root = objectMapper.readTree(resp.body());
+                String content = root.path("choices").get(0).path("message").path("content").asText("");
+                content = content.replaceAll("```markdown", "").replaceAll("```", "").trim();
+                if (!content.isBlank()) {
+                    return content;
+                }
+            } else {
+                log.error("Erro ao gerar resumo para {}: status {}", label, resp.statusCode());
+            }
+        } catch (Exception e) {
+            log.error("Erro ao gerar resumo para {}: {}", label, e.getMessage());
+        }
+        return null;
     }
 
     private String detectPlatformFromUrl(String url) {

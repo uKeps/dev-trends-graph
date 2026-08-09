@@ -207,8 +207,51 @@ export default function GraphView() {
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
   const [selectedNode, setSelectedNode] = useState<ApiNode | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
+  const [summaryError, setSummaryError] = useState<boolean>(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [showAllEdges, setShowAllEdges] = useState<boolean>(false); // Padrão: sem teia poluída
+
+  // Fetch summary under demand when selectedNode has no summary
+  useEffect(() => {
+    if (!selectedNode) {
+      setSummaryLoading(false);
+      setSummaryError(false);
+      return;
+    }
+
+    if (selectedNode.summary && selectedNode.summary.trim().length > 0) {
+      setSummaryLoading(false);
+      setSummaryError(false);
+      return;
+    }
+
+    setSummaryLoading(true);
+    setSummaryError(false);
+
+    fetch(`${API_BASE_URL}/api/v1/nodes/${selectedNode.id}/summary`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Erro ao buscar resumo");
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.summary && data.summary.trim().length > 0) {
+          const fetchedSummary = data.summary.trim();
+          setSelectedNode((prev) => (prev && prev.id === selectedNode.id ? { ...prev, summary: fetchedSummary } : prev));
+          setRawApiNodes((prevNodes) =>
+            prevNodes.map((n) => (n.id === selectedNode.id ? { ...n, summary: fetchedSummary } : n))
+          );
+        } else {
+          setSummaryError(true);
+        }
+      })
+      .catch(() => {
+        setSummaryError(true);
+      })
+      .finally(() => {
+        setSummaryLoading(false);
+      });
+  }, [selectedNode?.id]);
 
   // Filtros de UI
   const [searchQuery, setSearchQuery] = useState("");
@@ -780,9 +823,19 @@ export default function GraphView() {
                   <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", marginBottom: "6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
                     Resumo
                   </div>
-                  <p style={{ fontSize: "14px", color: "#e2e8f0", lineHeight: 1.6, margin: 0 }}>
-                    {selectedNode.summary || `${selectedNode.label} é uma tecnologia em ascensão no ecossistema dev, com discussões recentes na bolha de desenvolvimento.`}
-                  </p>
+                  {summaryLoading ? (
+                    <div style={{ fontSize: "13px", color: "#94a3b8", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span>Carregando resumo técnico...</span>
+                    </div>
+                  ) : selectedNode.summary && selectedNode.summary.trim().length > 0 ? (
+                    <p style={{ fontSize: "14px", color: "#e2e8f0", lineHeight: 1.6, margin: 0 }}>
+                      {selectedNode.summary}
+                    </p>
+                  ) : (
+                    <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0, fontStyle: "italic" }}>
+                      Não foi possível carregar o resumo agora.
+                    </p>
+                  )}
                 </div>
 
                 {/* Fonte original */}

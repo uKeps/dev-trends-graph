@@ -124,6 +124,44 @@ public class NodeRepository {
     }
 
     /**
+     * Busca um nó pelo ID incluindo summary, source_url, source_title e source_platform.
+     */
+    public Optional<Node> findById(UUID id) {
+        ensureSourceColumnsExist();
+        String sql = """
+                SELECT id, label, category, summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
+                FROM nodes
+                WHERE id = ?
+                """;
+        List<Node> result = jdbc.query(sql, (rs, rowNum) -> {
+            Node n = new Node(
+                    UUID.fromString(rs.getString("id")),
+                    rs.getString("label"),
+                    rs.getString("category"),
+                    rs.getDouble("hype_score"),
+                    rs.getObject("first_seen", OffsetDateTime.class),
+                    rs.getObject("last_seen", OffsetDateTime.class),
+                    rs.getInt("mention_count")
+            );
+            n.setSummary(rs.getString("summary"));
+            n.setSourceUrl(rs.getString("source_url"));
+            n.setSourceTitle(rs.getString("source_title"));
+            n.setSourcePlatform(rs.getString("source_platform"));
+            return n;
+        }, id);
+        return result.stream().findFirst();
+    }
+
+    /**
+     * Atualiza o resumo (summary) de um nó pelo ID.
+     */
+    public void updateSummary(UUID id, String summary) {
+        ensureSourceColumnsExist();
+        String sql = "UPDATE nodes SET summary = ? WHERE id = ?";
+        jdbc.update(sql, summary, id);
+    }
+
+    /**
      * Retorna os top N nós por hype_score.
      */
     public List<Node> findTopByHypeScore(int limit) {
