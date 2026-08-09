@@ -327,7 +327,8 @@ public class GraphExtractionService {
             Map<String, Object> requestBody = Map.of(
                     "model", llmModel,
                     "temperature", 0.1,
-                    "max_tokens", 1200,
+                    "max_tokens", 4000,
+                    "reasoning_effort", "low",
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
                             Map.of("role", "user", "content", userMessage)
@@ -348,6 +349,11 @@ public class GraphExtractionService {
                 log.error("LLM API status {}. Body: {}", llmResp.statusCode(), llmResp.body());
                 return extractByKeyword(articles);
             }
+
+            JsonNode debugRoot = objectMapper.readTree(llmResp.body());
+            String debugContent = debugRoot.path("choices").get(0).path("message").path("content").asText("");
+            log.info("Resposta bruta do LLM ({} chars): {}", debugContent.length(),
+                    debugContent.length() > 200 ? debugContent.substring(0, 200) + "..." : debugContent);
 
             return parseLlmResponse(llmResp.body(), articles);
 
@@ -465,6 +471,7 @@ public class GraphExtractionService {
                     "model", llmModel,
                     "temperature", 0.4,
                     "max_tokens", 400,
+                    "reasoning_effort", "low",
                     "messages", List.of(
                             Map.of("role", "system", "content", system),
                             Map.of("role", "user", "content", user)
