@@ -66,7 +66,12 @@ jobs:
           path: backend/target/surefire-reports/
           retention-days: 7
 
-      # 6. Aciona o webhook de deploy do Render (apenas em push na main)
+      # 6. Validação real do Dockerfile (Dry-Run Build idêntico ao Render)
+      # Garante que a imagem compila 100% sem erros de código/dep antes de acionar produção
+      - name: 🐳 Validate Docker build (Render dry-run)
+        run: docker build -t dev-trends-backend:test backend/
+
+      # 7. Aciona o webhook de deploy do Render (APENAS se os testes e o Docker build passarem)
       # Configure RENDER_DEPLOY_HOOK_URL nos Secrets do repositório GitHub:
       # Settings → Secrets and variables → Actions → New repository secret
       - name: 🚀 Trigger Render Deploy
