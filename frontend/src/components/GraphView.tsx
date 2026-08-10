@@ -98,11 +98,12 @@ const RELATION_COLORS: Record<string, string> = {
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
 
 const SOURCE_PLATFORMS: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  hackernews: { label: "Hacker News", icon: "🔶", color: "#f97316", bg: "rgba(249,115,22,0.15)" },
-  reddit:     { label: "Reddit",      icon: "🔴", color: "#ef4444", bg: "rgba(239,68,68,0.15)" },
-  devto:      { label: "Dev.to",      icon: "💜", color: "#a78bfa", bg: "rgba(167,139,250,0.15)" },
-  lobsters:   { label: "Lobsters",    icon: "🦞", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
-  web:        { label: "Web",         icon: "🌐", color: "#64748b", bg: "rgba(100,116,139,0.15)" },
+  hackernews:    { label: "Hacker News",  icon: "🔶", color: "#f97316", bg: "rgba(249,115,22,0.15)" },
+  reddit:        { label: "Reddit",       icon: "🔴", color: "#ef4444", bg: "rgba(239,68,68,0.15)" },
+  devto:         { label: "Dev.to",       icon: "💜", color: "#a78bfa", bg: "rgba(167,139,250,0.15)" },
+  lobsters:      { label: "Lobsters",     icon: "🦞", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
+  stackoverflow: { label: "Stack Overflow", icon: "📚", color: "#f48024", bg: "rgba(244,128,36,0.15)" },
+  web:           { label: "Web",          icon: "🌐", color: "#64748b", bg: "rgba(100,116,139,0.15)" },
 };
 
 function detectPlatform(url?: string, platform?: string): string {
@@ -112,6 +113,7 @@ function detectPlatform(url?: string, platform?: string): string {
   if (url.includes("news.ycombinator.com")) return "hackernews";
   if (url.includes("dev.to")) return "devto";
   if (url.includes("lobste.rs")) return "lobsters";
+  if (url.includes("stackoverflow.com")) return "stackoverflow";
   return "web";
 }
 

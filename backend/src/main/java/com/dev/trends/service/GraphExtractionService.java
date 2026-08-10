@@ -18,6 +18,8 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,6 +31,8 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipException;
 
 @Service
 public class GraphExtractionService {
@@ -49,6 +53,11 @@ public class GraphExtractionService {
             "LocalLLaMA", "golang", "rust", "ExperiencedDevs", "artificial"
     );
     private static final List<String> DEVTO_TAGS = List.of("ai", "javascript", "rust", "devops", "webdev");
+
+    private static final String STACKOVERFLOW_URL =
+            "https://api.stackexchange.com/2.3/questions?order=desc&sort=activity&tagged=%s&site=stackoverflow&pagesize=4&filter=default";
+    private static final List<String> STACKOVERFLOW_TAGS =
+            List.of("python", "javascript", "typescript", "docker", "kubernetes");
 
     private static final int MAX_HN_ARTICLES = 25;
 
@@ -122,9 +131,9 @@ public class GraphExtractionService {
     private List<Article> fetchAllArticles() {
         List<Article> all = new ArrayList<>();
         all.addAll(fetchHackerNewsArticles());
-        all.addAll(fetchRedditArticles());
         all.addAll(fetchDevToArticles());
         all.addAll(fetchLobstersArticles());
+        all.addAll(fetchStackOverflowArticles());
         return all;
     }
 
@@ -330,6 +339,52 @@ public class GraphExtractionService {
         return articles;
     }
 
+    private List<Article> fetchStackOverflowArticles() {
+        List<Article> articles = new ArrayList<>();
+        for (String tag : STACKOVERFLOW_TAGS) {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(STACKOVERFLOW_URL.formatted(tag)))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("User-Agent", USER_AGENT)
+                        .GET()
+                        .build();
+
+                HttpResponse<byte[]> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
+                if (resp.statusCode() != 200) continue;
+
+                String body = decodeStackExchangeBody(resp.body());
+                JsonNode items = objectMapper.readTree(body).path("items");
+                if (!items.isArray()) continue;
+
+                for (JsonNode item : items) {
+                    String title = item.path("title").asText("");
+                    if (title.isBlank()) continue;
+
+                    String link = item.path("link").asText("");
+                    String id = String.valueOf(item.path("question_id").asLong());
+                    articles.add(new Article(id, title, link, link, "stackoverflow"));
+                }
+            } catch (Exception e) {
+                log.debug("Erro ao coletar StackOverflow tag {}: {}", tag, e.getMessage());
+            }
+        }
+        log.info("StackOverflow: {} artigos coletados.", articles.size());
+        return articles;
+    }
+
+    /**
+     * A API do Stack Exchange sempre comprime a resposta em gzip, mesmo sem pedir — precisa
+     * descomprimir manualmente antes de fazer o parse do JSON.
+     */
+    private String decodeStackExchangeBody(byte[] raw) throws IOException {
+        try (var gzipStream = new GZIPInputStream(new ByteArrayInputStream(raw))) {
+            return new String(gzipStream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (ZipException e) {
+            return new String(raw, StandardCharsets.UTF_8);
+        }
+    }
+
     // =========================================================
     // FASE 2: Extração via LLM
     // =========================================================
@@ -406,7 +461,7 @@ public class GraphExtractionService {
                 REGRAS OBRIGATÓRIAS:
                 1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
                 2. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
-                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, reddit, devto ou lobsters.
+                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, devto, lobsters ou stackoverflow.
 
                 Responda APENAS com JSON válido no formato:
                 {
