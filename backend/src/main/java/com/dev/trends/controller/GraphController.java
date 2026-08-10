@@ -220,6 +220,7 @@ public class GraphController {
     /**
      * GET /api/v1/nodes/{id}/summary
      * Retorna ou gera dinamicamente o resumo técnico de um nó específico.
+     * Se o nó não tiver sourceUrl, busca ao vivo via HN Algolia e persiste o resultado.
      */
     @GetMapping("/api/v1/nodes/{id}/summary")
     public ResponseEntity<Map<String, Object>> getNodeSummary(@PathVariable UUID id) {
@@ -228,18 +229,35 @@ public class GraphController {
             return ResponseEntity.notFound().build();
         }
 
-        if (node.getSummary() != null && !node.getSummary().isBlank()) {
-            return ResponseEntity.ok(Map.of("summary", node.getSummary(), "cached", true));
+        String summary = node.getSummary();
+        boolean summaryCached = summary != null && !summary.isBlank();
+        if (!summaryCached) {
+            summary = graphExtractionService.generateTopicSummary(
+                    node.getLabel(), node.getCategory(), node.getSourceTitle(), node.getSourceUrl());
+            if (summary != null && !summary.isBlank()) {
+                nodeRepository.updateSummary(id, summary);
+            }
         }
 
-        String summary = graphExtractionService.generateTopicSummary(
-                node.getLabel(), node.getCategory(), node.getSourceTitle(), node.getSourceUrl());
-
-        if (summary != null && !summary.isBlank()) {
-            nodeRepository.updateSummary(id, summary);
-            return ResponseEntity.ok(Map.of("summary", summary, "cached", false));
+        String sourceUrl = node.getSourceUrl();
+        String sourceTitle = node.getSourceTitle();
+        String sourcePlatform = node.getSourcePlatform();
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            var found = graphExtractionService.findLiveSource(node.getLabel());
+            if (found != null) {
+                sourceUrl = found.url();
+                sourceTitle = found.title();
+                sourcePlatform = found.platform();
+                nodeRepository.updateSource(id, sourceUrl, sourceTitle, sourcePlatform);
+            }
         }
 
-        return ResponseEntity.ok(Map.of("summary", "", "cached", false));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("summary", summary == null ? "" : summary);
+        body.put("cached", summaryCached);
+        body.put("sourceUrl", sourceUrl == null ? "" : sourceUrl);
+        body.put("sourceTitle", sourceTitle == null ? "" : sourceTitle);
+        body.put("sourcePlatform", sourcePlatform == null ? "" : sourcePlatform);
+        return ResponseEntity.ok(body);
     }
 }

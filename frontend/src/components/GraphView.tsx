@@ -236,10 +236,14 @@ export default function GraphView() {
       })
       .then((data) => {
         if (data && data.summary && data.summary.trim().length > 0) {
-          const fetchedSummary = data.summary.trim();
-          setSelectedNode((prev) => (prev && prev.id === selectedNode.id ? { ...prev, summary: fetchedSummary } : prev));
+          const patch: Partial<ApiNode> = { summary: data.summary.trim() };
+          if (data.sourceUrl) patch.sourceUrl = data.sourceUrl;
+          if (data.sourceTitle) patch.sourceTitle = data.sourceTitle;
+          if (data.sourcePlatform) patch.sourcePlatform = data.sourcePlatform;
+
+          setSelectedNode((prev) => (prev && prev.id === selectedNode.id ? { ...prev, ...patch } : prev));
           setRawApiNodes((prevNodes) =>
-            prevNodes.map((n) => (n.id === selectedNode.id ? { ...n, summary: fetchedSummary } : n))
+            prevNodes.map((n) => (n.id === selectedNode.id ? { ...n, ...patch } : n))
           );
         } else {
           setSummaryError(true);

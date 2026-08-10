@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -452,6 +453,44 @@ public class GraphExtractionService {
                 .filter(a -> a.title().toLowerCase().contains(needle))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Busca uma fonte real ao vivo pra um tópico que não tem sourceUrl salvo, usando a API
+     * pública de busca do Hacker News (Algolia). Usado sob demanda, no clique do usuário —
+     * não depende do tópico ter aparecido por acaso num lote de ingestão.
+     */
+    public Article findLiveSource(String label) {
+        try {
+            String query = URLEncoder.encode(label, StandardCharsets.UTF_8);
+            String url = "https://hn.algolia.com/api/v1/search?query=" + query
+                    + "&tags=story&hitsPerPage=1";
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(8))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) return null;
+
+            JsonNode hits = objectMapper.readTree(resp.body()).path("hits");
+            if (!hits.isArray() || hits.isEmpty()) return null;
+
+            JsonNode hit = hits.get(0);
+            String title = hit.path("title").asText("");
+            if (title.isBlank()) return null;
+
+            String objectId = hit.path("objectID").asText("");
+            String discussion = "https://news.ycombinator.com/item?id=" + objectId;
+            String articleUrl = hit.path("url").asText(discussion);
+
+            return new Article(objectId, title, articleUrl, discussion, "hackernews");
+        } catch (Exception e) {
+            log.debug("Erro ao buscar fonte ao vivo para '{}': {}", label, e.getMessage());
+            return null;
+        }
     }
 
     private ExtractionResult parseLlmResponse(String content, List<Article> articles) {

@@ -162,6 +162,15 @@ public class NodeRepository {
     }
 
     /**
+     * Atualiza a fonte (sourceUrl/sourceTitle/sourcePlatform) de um nó pelo ID.
+     */
+    public void updateSource(UUID id, String sourceUrl, String sourceTitle, String sourcePlatform) {
+        ensureSourceColumnsExist();
+        String sql = "UPDATE nodes SET source_url = ?, source_title = ?, source_platform = ? WHERE id = ?";
+        jdbc.update(sql, sourceUrl, sourceTitle, sourcePlatform, id);
+    }
+
+    /**
      * Retorna os top N nós por hype_score.
      */
     public List<Node> findTopByHypeScore(int limit) {
