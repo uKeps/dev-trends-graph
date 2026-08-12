@@ -104,8 +104,8 @@ public class GraphExtractionService {
         ExtractionResult extracted = callLlmForExtraction(articles);
         log.info("LLM extraiu {} nós e {} arestas.", extracted.nodes().size(), extracted.edges().size());
 
-        int nodesCreated = persistNodes(extracted.nodes());
-        int edgesCreated = persistEdges(extracted.edges());
+        int nodesCreated = persistNodes(extracted.nodes(), articles);
+        int edgesCreated = persistEdges(extracted.edges(), articles);
 
         log.info("Pipeline concluído. Nós: {}, Arestas: {}", nodesCreated, edgesCreated);
         return new ExtractionResult(extracted.nodes(), extracted.edges());
@@ -667,12 +667,13 @@ public class GraphExtractionService {
     // FASE 3: Persistência
     // =========================================================
 
-    private int persistNodes(List<NodeRequest> nodes) {
+    private int persistNodes(List<NodeRequest> nodes, List<Article> articles) {
         int count = 0;
         for (NodeRequest node : nodes) {
             try {
-                nodeRepository.upsertNode(node.label(), node.category(), node.summary(),
+                UUID nodeId = nodeRepository.upsertNode(node.label(), node.category(), node.summary(),
                         node.sourceUrl(), node.sourceTitle(), node.sourcePlatform());
+                persistNodeArticles(nodeId, node.label(), articles);
                 count++;
             } catch (Exception e) {
                 log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());
@@ -681,7 +682,25 @@ public class GraphExtractionService {
         return count;
     }
 
-    private int persistEdges(List<EdgeRequest> edges) {
+    /**
+     * Linka ao tópico todos os artigos do lote atual cujo título o menciona (não só o primeiro),
+     * para alimentar o feed de notícias. Limita a 5 por tópico por rodada de ingestão.
+     */
+    private void persistNodeArticles(UUID nodeId, String label, List<Article> articles) {
+        if (nodeId == null) return;
+        articles.stream()
+                .filter(a -> containsWord(a.title(), label))
+                .limit(5)
+                .forEach(a -> {
+                    try {
+                        nodeRepository.insertArticle(nodeId, a.title(), a.discussionUrl(), a.platform());
+                    } catch (Exception e) {
+                        log.debug("Falha ao persistir artigo para '{}': {}", label, e.getMessage());
+                    }
+                });
+    }
+
+    private int persistEdges(List<EdgeRequest> edges, List<Article> articles) {
         int count = 0;
         for (EdgeRequest edge : edges) {
             try {
@@ -689,12 +708,10 @@ public class GraphExtractionService {
                 UUID targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
 
                 if (sourceId == null) {
-                    nodeRepository.upsertNode(edge.source(), "Concept", "Conceito em destaque no ecossistema.", null, null, null);
-                    sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
+                    sourceId = createOrphanNode(edge.source(), articles);
                 }
                 if (targetId == null) {
-                    nodeRepository.upsertNode(edge.target(), "Concept", "Conceito em destaque no ecossistema.", null, null, null);
-                    targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
+                    targetId = createOrphanNode(edge.target(), articles);
                 }
 
                 if (sourceId != null && targetId != null && !sourceId.equals(targetId)) {
@@ -706,5 +723,20 @@ public class GraphExtractionService {
             }
         }
         return count;
+    }
+
+    /**
+     * Cria um nó referenciado só numa aresta (o LLM não o incluiu em `nodes`). Tenta achar a
+     * fonte real no mesmo lote de artigos já coletado; deixa o resumo em branco (em vez de um
+     * texto genérico fixo) para que o frontend ainda dispare a busca de fonte sob demanda depois.
+     */
+    private UUID createOrphanNode(String label, List<Article> articles) {
+        Article match = findBestMatchingArticle(label, articles);
+        String sourceUrl = match != null ? match.discussionUrl() : null;
+        String sourceTitle = match != null ? match.title() : null;
+        String sourcePlatform = match != null ? match.platform() : null;
+        UUID nodeId = nodeRepository.upsertNode(label, "Concept", null, sourceUrl, sourceTitle, sourcePlatform);
+        persistNodeArticles(nodeId, label, articles);
+        return nodeId;
     }
 }

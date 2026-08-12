@@ -1,5 +1,6 @@
 package com.dev.trends.controller;
 
+import com.dev.trends.model.ArticlePreview;
 import com.dev.trends.model.Edge;
 import com.dev.trends.model.Node;
 import com.dev.trends.repository.EdgeRepository;
@@ -133,6 +134,55 @@ public class GraphController {
                     "edges", List.of()
             ));
         }
+    }
+
+    // =========================================================
+    // ARTICLES — feed de notícias por tópico
+    // =========================================================
+
+    /**
+     * GET /api/v1/articles?days=7&limit=100
+     * Retorna os artigos mais recentes coletados, cada um linkado ao tópico que menciona,
+     * para o feed de notícias (agrupado por categoria no frontend).
+     */
+    @GetMapping("/api/v1/articles")
+    public ResponseEntity<Map<String, Object>> getArticles(
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "100") int limit) {
+
+        if (days < 1 || days > 365) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
+        }
+        if (limit < 1 || limit > 300) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "O parâmetro 'limit' deve estar entre 1 e 300."));
+        }
+
+        List<ArticlePreview> articles = nodeRepository.findRecentArticles(days, limit);
+
+        List<Map<String, Object>> articleList = articles.stream()
+                .map(a -> {
+                    Map<String, Object> article = new LinkedHashMap<>();
+                    article.put("title", a.title());
+                    article.put("url", a.url());
+                    article.put("platform", a.platform());
+                    article.put("createdAt", a.createdAt() != null ? a.createdAt().toString() : null);
+                    article.put("nodeLabel", a.nodeLabel());
+                    article.put("nodeCategory", a.nodeCategory());
+                    return article;
+                })
+                .toList();
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("articles", articleList);
+        response.put("meta", Map.of(
+                "days", days,
+                "count", articleList.size(),
+                "generatedAt", Instant.now().toString()
+        ));
+
+        return ResponseEntity.ok(response);
     }
 
     // =========================================================

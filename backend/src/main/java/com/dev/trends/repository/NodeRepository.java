@@ -1,6 +1,8 @@
 package com.dev.trends.repository;
 
+import com.dev.trends.model.ArticlePreview;
 import com.dev.trends.model.Node;
+import jakarta.annotation.PostConstruct;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -19,6 +21,28 @@ public class NodeRepository {
 
     public NodeRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /**
+     * Limpa, uma vez na subida da aplicação, o resumo genérico fixo que a versão antiga do
+     * pipeline gravava em nós órfãos (referenciados só numa aresta) sem fonte. Sem esse resumo
+     * "cacheado", o frontend volta a disparar a busca de fonte sob demanda para esses nós.
+     */
+    @PostConstruct
+    public void clearOrphanPlaceholderSummaries() {
+        try {
+            ensureSourceColumnsExist();
+            int updated = jdbc.update(
+                    "UPDATE nodes SET summary = NULL " +
+                            "WHERE summary = 'Conceito em destaque no ecossistema.' " +
+                            "AND (source_url IS NULL OR source_url = '')");
+            if (updated > 0) {
+                org.slf4j.LoggerFactory.getLogger(NodeRepository.class)
+                        .info("Limpou resumo genérico de {} nó(s) sem fonte para reprocessamento.", updated);
+            }
+        } catch (Exception e) {
+            // Tabela pode não existir ainda na primeira subida; ignora.
+        }
     }
 
     private static final RowMapper<Node> NODE_ROW_MAPPER = (rs, rowNum) -> new Node(
@@ -189,5 +213,52 @@ public class NodeRepository {
     public List<Node> findAll() {
         String sql = "SELECT id, label, category, hype_score, first_seen, last_seen, mention_count FROM nodes ORDER BY hype_score DESC";
         return jdbc.query(sql, NODE_ROW_MAPPER);
+    }
+
+    /**
+     * Garante que a coluna node_id (linkando artigo → tópico) exista na tabela posts.
+     */
+    public void ensureArticleColumnsExist() {
+        try {
+            jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE CASCADE;");
+            jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url ON posts (node_id, url);");
+        } catch (Exception e) {
+            // Ignora se já existirem
+        }
+    }
+
+    /**
+     * Persiste um artigo associado a um tópico. Idempotente: recolher o mesmo artigo em rodadas
+     * futuras de ingestão não duplica a linha, graças ao índice único (node_id, url).
+     */
+    public void insertArticle(UUID nodeId, String title, String url, String platform) {
+        if (nodeId == null || url == null || url.isBlank()) return;
+        ensureArticleColumnsExist();
+        String sql = "INSERT INTO posts (title, url, platform, node_id) VALUES (?, ?, ?, ?) " +
+                "ON CONFLICT (node_id, url) DO NOTHING";
+        jdbc.update(sql, title, url, platform, nodeId);
+    }
+
+    /**
+     * Retorna os artigos mais recentes (últimos N dias), com o tópico associado, para o feed de notícias.
+     */
+    public List<ArticlePreview> findRecentArticles(int days, int limit) {
+        ensureArticleColumnsExist();
+        String sql = """
+                SELECT p.title, p.url, p.platform, p.created_at, n.label AS node_label, n.category AS node_category
+                FROM posts p
+                JOIN nodes n ON p.node_id = n.id
+                WHERE p.created_at >= NOW() - (? || ' days')::INTERVAL
+                ORDER BY p.created_at DESC
+                LIMIT ?
+                """;
+        return jdbc.query(sql, (rs, rowNum) -> new ArticlePreview(
+                rs.getString("title"),
+                rs.getString("url"),
+                rs.getString("platform"),
+                rs.getObject("created_at", OffsetDateTime.class),
+                rs.getString("node_label"),
+                rs.getString("node_category")
+        ), days, limit);
     }
 }

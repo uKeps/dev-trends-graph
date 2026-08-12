@@ -20,8 +20,14 @@ CREATE TABLE IF NOT EXISTS posts (
     hn_id       BIGINT           UNIQUE,
     score       INT              DEFAULT 0,
     created_at  TIMESTAMPTZ      NOT NULL DEFAULT now(),
-    processed   BOOLEAN          NOT NULL DEFAULT false
+    processed   BOOLEAN          NOT NULL DEFAULT false,
+    node_id     UUID             REFERENCES nodes(id) ON DELETE CASCADE
 );
+
+-- Índice único para linkar cada artigo ao tópico que ele menciona, evitando duplicar o
+-- mesmo artigo a cada nova rodada de ingestão (ex: uma notícia que continua em alta no HN).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url
+    ON posts (node_id, url);
 
 -- Índice para buscas por data (usado no endpoint /api/v1/graph?days=N)
 CREATE INDEX IF NOT EXISTS idx_posts_created_at
@@ -48,6 +54,10 @@ CREATE TABLE IF NOT EXISTS nodes (
     first_seen  TIMESTAMPTZ       NOT NULL DEFAULT now(),
     last_seen   TIMESTAMPTZ       NOT NULL DEFAULT now(),
     mention_count INT             NOT NULL DEFAULT 1,
+    summary         TEXT,
+    source_url      TEXT,
+    source_title    TEXT,
+    source_platform VARCHAR(50),
     CONSTRAINT uq_nodes_label UNIQUE (label)
 );
 
