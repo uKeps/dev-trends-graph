@@ -23,12 +23,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import java.util.zip.GZIPInputStream;
@@ -41,17 +41,10 @@ public class GraphExtractionService {
 
     private static final String HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
-    private static final String REDDIT_BASE = "https://www.reddit.com/r/%s/hot.json?limit=4";
-    private static final String REDDIT_OAUTH_TOKEN_URL = "https://www.reddit.com/api/v1/access_token";
-    private static final String REDDIT_OAUTH_BASE = "https://oauth.reddit.com/r/%s/hot?limit=4";
     private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=4";
     private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
     private static final String USER_AGENT = "dev-trends-graph/1.0 (tech trends aggregator)";
 
-    private static final List<String> REDDIT_SUBREDDITS = List.of(
-            "programming", "MachineLearning", "webdev", "devops",
-            "LocalLLaMA", "golang", "rust", "ExperiencedDevs", "artificial"
-    );
     private static final List<String> DEVTO_TAGS = List.of("ai", "javascript", "rust", "devops", "webdev");
 
     private static final String STACKOVERFLOW_URL =
@@ -76,12 +69,6 @@ public class GraphExtractionService {
     private String llmModel;
 
     private static final String FALLBACK_LLM_MODEL = "qwen/qwen3.6-27b";
-
-    @Value("${reddit.client.id:${REDDIT_CLIENT_ID:}}")
-    private String redditClientId;
-
-    @Value("${reddit.client.secret:${REDDIT_CLIENT_SECRET:}}")
-    private String redditClientSecret;
 
     public GraphExtractionService(
             NodeRepository nodeRepository,
@@ -190,88 +177,6 @@ public class GraphExtractionService {
             log.debug("Erro ao buscar item HN {}: {}", itemId, e.getMessage());
         }
         return null;
-    }
-
-    /**
-     * Obtém token de acesso OAuth2 do Reddit via client_credentials.
-     * Retorna null se credenciais não estiverem configuradas ou a autenticação falhar.
-     */
-    private String fetchRedditAccessToken() {
-        if (redditClientId == null || redditClientId.isBlank()
-                || redditClientSecret == null || redditClientSecret.isBlank()) {
-            return null;
-        }
-        try {
-            String credentials = Base64.getEncoder().encodeToString(
-                    (redditClientId + ":" + redditClientSecret).getBytes(StandardCharsets.UTF_8));
-
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(REDDIT_OAUTH_TOKEN_URL))
-                    .timeout(Duration.ofSeconds(10))
-                    .header("Authorization", "Basic " + credentials)
-                    .header("Content-Type", "application/x-www-form-urlencoded")
-                    .header("User-Agent", USER_AGENT)
-                    .POST(HttpRequest.BodyPublishers.ofString("grant_type=client_credentials"))
-                    .build();
-
-            HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() != 200) {
-                log.warn("Falha ao obter token OAuth do Reddit. Status {}: {}", resp.statusCode(), resp.body());
-                return null;
-            }
-            return objectMapper.readTree(resp.body()).path("access_token").asText(null);
-        } catch (Exception e) {
-            log.warn("Erro ao autenticar no Reddit: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    private List<Article> fetchRedditArticles() {
-        List<Article> articles = new ArrayList<>();
-        String accessToken = fetchRedditAccessToken();
-        String urlTemplate = accessToken != null ? REDDIT_OAUTH_BASE : REDDIT_BASE;
-
-        for (String sub : REDDIT_SUBREDDITS) {
-            try {
-                HttpRequest.Builder builder = HttpRequest.newBuilder()
-                        .uri(URI.create(urlTemplate.formatted(sub)))
-                        .timeout(Duration.ofSeconds(10))
-                        .header("User-Agent", USER_AGENT)
-                        .GET();
-
-                if (accessToken != null) {
-                    builder.header("Authorization", "Bearer " + accessToken);
-                }
-
-                HttpResponse<String> resp = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() != 200) {
-                    log.debug("Reddit r/{} status {}", sub, resp.statusCode());
-                    continue;
-                }
-
-                JsonNode children = objectMapper.readTree(resp.body())
-                        .path("data").path("children");
-
-                for (JsonNode child : children) {
-                    JsonNode data = child.path("data");
-                    String title = data.path("title").asText("");
-                    if (title.isBlank()) continue;
-
-                    String permalink = data.path("permalink").asText("");
-                    String discussion = permalink.startsWith("http")
-                            ? permalink : "https://www.reddit.com" + permalink;
-                    String url = data.path("url").asText(discussion);
-                    String id = data.path("id").asText("");
-
-                    articles.add(new Article(id, title, url, discussion, "reddit"));
-                }
-            } catch (Exception e) {
-                log.debug("Erro ao coletar r/{}: {}", sub, e.getMessage());
-            }
-        }
-        log.info("Reddit: {} artigos coletados ({}).", articles.size(),
-                accessToken != null ? "via OAuth" : "endpoint público, sem OAuth configurado");
-        return articles;
     }
 
     private List<Article> fetchDevToArticles() {
@@ -499,13 +404,23 @@ public class GraphExtractionService {
     }
 
     /**
+     * Checa se `word` aparece em `text` como palavra inteira (não como substring dentro de
+     * outra palavra). Evita que "Java" case dentro de "JavaScript" e vice-versa.
+     */
+    private boolean containsWord(String text, String word) {
+        if (text == null || word == null || word.isBlank()) return false;
+        return Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE)
+                .matcher(text)
+                .find();
+    }
+
+    /**
      * Encontra o artigo original cujo título menciona o label extraído.
      * Usado para atribuir fonte real de forma confiável, sem depender do LLM reproduzir URLs.
      */
     private Article findBestMatchingArticle(String label, List<Article> articles) {
-        String needle = label.toLowerCase();
         return articles.stream()
-                .filter(a -> a.title().toLowerCase().contains(needle))
+                .filter(a -> containsWord(a.title(), label))
                 .findFirst()
                 .orElse(null);
     }
@@ -518,8 +433,10 @@ public class GraphExtractionService {
     public Article findLiveSource(String label) {
         try {
             String query = URLEncoder.encode(label, StandardCharsets.UTF_8);
+            // hitsPerPage > 1 porque a relevância do Algolia não é palavra-inteira: uma busca
+            // por "Java" costuma trazer resultados de "JavaScript" no topo. Filtramos abaixo.
             String url = "https://hn.algolia.com/api/v1/search?query=" + query
-                    + "&tags=story&hitsPerPage=1";
+                    + "&tags=story&hitsPerPage=20";
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -533,15 +450,17 @@ public class GraphExtractionService {
             JsonNode hits = objectMapper.readTree(resp.body()).path("hits");
             if (!hits.isArray() || hits.isEmpty()) return null;
 
-            JsonNode hit = hits.get(0);
-            String title = hit.path("title").asText("");
-            if (title.isBlank()) return null;
+            for (JsonNode hit : hits) {
+                String title = hit.path("title").asText("");
+                if (title.isBlank() || !containsWord(title, label)) continue;
 
-            String objectId = hit.path("objectID").asText("");
-            String discussion = "https://news.ycombinator.com/item?id=" + objectId;
-            String articleUrl = hit.path("url").asText(discussion);
+                String objectId = hit.path("objectID").asText("");
+                String discussion = "https://news.ycombinator.com/item?id=" + objectId;
+                String articleUrl = hit.path("url").asText(discussion);
 
-            return new Article(objectId, title, articleUrl, discussion, "hackernews");
+                return new Article(objectId, title, articleUrl, discussion, "hackernews");
+            }
+            return null;
         } catch (Exception e) {
             log.debug("Erro ao buscar fonte ao vivo para '{}': {}", label, e.getMessage());
             return null;
@@ -701,7 +620,7 @@ public class GraphExtractionService {
     private ExtractionResult extractByKeyword(List<Article> articles) {
         List<String> titles = articles.stream().map(Article::title).toList();
         List<String> techKeywords = List.of(
-                "AI", "LLM", "GPT", "Claude", "Gemini", "Llama", "Python", "Java", "Rust",
+                "AI", "LLM", "GPT", "Claude", "Gemini", "Llama", "Python", "Java", "JavaScript", "Rust",
                 "TypeScript", "React", "Next.js", "Kubernetes", "Docker", "AWS", "GCP",
                 "PostgreSQL", "Redis", "GraphQL", "WebAssembly", "Deno", "Bun", "Vite",
                 "LangChain", "LangGraph", "OpenAI", "Anthropic", "Groq", "Mistral",
@@ -709,7 +628,7 @@ public class GraphExtractionService {
         );
 
         Map<String, Long> mentionCounts = techKeywords.stream()
-                .filter(kw -> titles.stream().anyMatch(t -> t.toLowerCase().contains(kw.toLowerCase())))
+                .filter(kw -> titles.stream().anyMatch(t -> containsWord(t, kw)))
                 .collect(Collectors.groupingBy(kw -> kw, Collectors.counting()));
 
         List<NodeRequest> nodes = mentionCounts.entrySet().stream()
@@ -734,7 +653,7 @@ public class GraphExtractionService {
 
     private String categorize(String term) {
         return switch (term.toLowerCase()) {
-            case "python", "java", "rust", "typescript", "deno", "bun" -> "Language";
+            case "python", "java", "javascript", "rust", "typescript", "deno", "bun" -> "Language";
             case "react", "next.js", "vite", "spring boot", "langchain", "langgraph" -> "Framework";
             case "docker", "kubernetes", "redis", "postgresql", "graphql" -> "Tool";
             case "aws", "gcp", "vercel", "supabase" -> "Platform";
