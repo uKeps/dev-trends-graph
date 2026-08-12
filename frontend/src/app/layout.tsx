@@ -26,12 +26,12 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "Reticle — Dev Trends & Study Hub",
   description:
-    "Radar de sinal técnico: varredura de Hacker News, Reddit, Dev.to, Lobsters e Stack Overflow em busca de tendências emergentes no ecossistema dev & IA.",
-  keywords: ["IA", "tendências tecnológicas", "grafo", "Hacker News", "Reddit", "Dev.to", "desenvolvimento", "LLM"],
+    "Technical signal radar: scans Hacker News, Reddit, Dev.to, Lobsters and Stack Overflow for emerging trends across the dev & AI ecosystem.",
+  keywords: ["AI", "tech trends", "graph", "Hacker News", "Reddit", "Dev.to", "software development", "LLM"],
   authors: [{ name: "Reticle" }],
   openGraph: {
     title: "Reticle",
-    description: "Radar de sinal técnico da bolha dev & IA",
+    description: "Technical signal radar for the dev & AI bubble",
     type: "website",
   },
 };
@@ -43,7 +43,7 @@ export default function RootLayout({
 }) {
   return (
     <html
-      lang="pt-BR"
+      lang="en"
       className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable}`}
     >
       <head>

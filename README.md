@@ -1,29 +1,32 @@
 # Reticle
 
-Mapeador de tendências da comunidade de desenvolvimento e inteligência artificial. A aplicação realiza a ingestão e extração de tópicos emergentes a partir de fontes como Hacker News, Dev.to, StackOverflow e Lobsters, apresentando os conceitos em grafos e grids organizados por categorias.
+Trend mapper for the software development and AI community. It ingests content from sources such as Hacker News, Dev.to, Stack Overflow and Lobsters, extracts the emerging topics and presents them as graphs and grids organized by category.
 
-## Arquitetura
+The web interface ships in English by default, with a pt-BR translation available from the EN/PT switch in the header.
 
-- **Backend**: Java 21 com Spring Boot 3 (hospedado no Render).
-- **Banco de Dados**: PostgreSQL com pgvector no Supabase.
-- **Frontend**: Next.js 14 com React Flow e Tailwind CSS (hospedado na Vercel).
-- **Provedor LLM**: Groq API (`openai/gpt-oss-20b`).
+## Architecture
 
-## Estrutura do Projeto
+- **Backend**: Java 21 with Spring Boot 3 (hosted on Render).
+- **Database**: PostgreSQL with pgvector on Supabase.
+- **Frontend**: Next.js 14 with React Flow (hosted on Vercel).
+- **LLM provider**: Groq API (`openai/gpt-oss-20b`).
 
-- `backend/`: API REST em Spring Boot responsável pela coleta de artigos, extração de conceitos e persistência no banco de dados.
-- `frontend/`: Aplicação web para visualização interativa do grafo, busca e consulta de resumos por tecnologia.
-- `.github/workflows/`: Pipeline CI/CD para testes, validação de Docker build e deploy.
+## Project Structure
 
-## Endpoints Principais
+- `backend/`: Spring Boot REST API responsible for collecting articles, extracting concepts and persisting them to the database.
+- `frontend/`: Web app for interactive graph visualization, search and per-technology summaries.
+- `.github/workflows/`: CI/CD pipeline for tests, Docker build validation and deploy.
 
-- `GET /health`: Health check da API.
-- `GET /api/v1/graph?days=7`: Retorna nós e arestas filtrados por período.
-- `GET /api/v1/trends`: Retorna os tópicos com maior pontuação de relevância.
-- `GET /api/v1/nodes/{id}/summary`: Retorna ou gera dinamicamente o resumo técnico de um tópico específico.
-- `POST /api/v1/ingest`: Dispara manualmente o pipeline de ingestão de dados.
+## Main Endpoints
 
-## Execução Local
+- `GET /health`: API health check.
+- `GET /api/v1/graph?days=7`: Returns nodes and edges filtered by period.
+- `GET /api/v1/articles?days=7&limit=100`: Returns the collected articles, grouped by topic in the UI.
+- `GET /api/v1/trends`: Returns the topics with the highest relevance score.
+- `GET /api/v1/nodes/{id}/summary`: Returns (or generates on demand) the technical summary of a topic.
+- `POST /api/v1/ingest`: Manually triggers the ingestion pipeline.
+
+## Running Locally
 
 ### Backend
 
@@ -32,7 +35,7 @@ cd backend
 mvn spring-boot:run
 ```
 
-Variáveis de ambiente requeridas:
+Required environment variables:
 - `DATABASE_URL`
 - `DB_PASSWORD`
 - `GROQ_API_KEY`
@@ -45,9 +48,9 @@ npm install
 npm run dev
 ```
 
-Variável de ambiente requerida:
+Required environment variable:
 - `NEXT_PUBLIC_API_URL`
 
-## Licença
+## License
 
 MIT

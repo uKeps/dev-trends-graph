@@ -178,7 +178,7 @@ a {
   left: 16px;
 }
 
-/* ---------- REGRA ÚNICA DE ESTADO ATIVO (segmented / pill) ---------- */
+/* ---------- SINGLE ACTIVE-STATE RULE (segmented / pill) ---------- */
 .segmented {
   display: flex;
   border: 1px solid var(--border);
@@ -230,7 +230,7 @@ a {
   border-color: var(--text-primary);
 }
 
-/* ---------- STRIPE (única aparição das 3 cores) ---------- */
+/* ---------- STRIPE (the only place the 3 colors appear) ---------- */
 .stripe {
   height: 3px;
   width: 100%;
@@ -271,7 +271,7 @@ a {
   margin-right: 4px;
 }
 
-/* ---------- CARD (anatomia única — nó do grafo e card de grid) ---------- */
+/* ---------- CARD (single anatomy — graph node and grid card) ---------- */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -430,7 +430,7 @@ a {
 .kanban-column-body .card {
   cursor: pointer;
 }
-/* ---------- NEWS (modo "Notícias" — feed compacto estilo hackertab) ---------- */
+/* ---------- NEWS ("News" mode — compact hackertab-style feed) ---------- */
 .news-item {
   display: flex;
   flex-direction: column;
@@ -645,7 +645,7 @@ a {
   border-color: var(--border-strong);
 }
 
-/* ---------- REACT FLOW — overrides mono-cromáticos ---------- */
+/* ---------- REACT FLOW — monochrome overrides ---------- */
 .react-flow__edge-path {
   stroke: var(--border-strong);
 }

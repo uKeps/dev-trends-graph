@@ -24,9 +24,10 @@ import {
   Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { I18nContext, useLang, useT, type Lang } from "@/lib/i18n";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIPOS
+// TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ApiNode {
@@ -97,11 +98,11 @@ function detectPlatform(url?: string, platform?: string): string {
   return "web";
 }
 
-function timeAgo(iso?: string): string {
+function timeAgo(iso: string | undefined, nowLabel: string): string {
   if (!iso) return "";
   const diffMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "agora";
+  if (minutes < 1) return nowLabel;
   if (minutes < 60) return `${minutes}min`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
@@ -109,7 +110,7 @@ function timeAgo(iso?: string): string {
   return `${days}d`;
 }
 
-// Medidor de relevância (bars) — substitui ícone decorativo por reforço visual discreto
+// Relevance meter (bars) — a discreet visual cue instead of a decorative icon
 function Bars({ val }: { val: number }) {
   const filled = Math.min(5, Math.ceil(val / 2));
   return (
@@ -122,10 +123,11 @@ function Bars({ val }: { val: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE: Nó do grafo (reaproveita a anatomia única de .card)
+// COMPONENT: graph node (reuses the single .card anatomy)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHovered?: boolean; onHover?: (id: string | null) => void } }) {
+  const t = useT();
   const isDimmed = data.isHighlighted === false;
   const classes = ["card", "graph-card"];
   if (data.isHovered) classes.push("is-hovered");
@@ -151,8 +153,8 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHover
       <div className="card-title">{data.label}</div>
 
       <div className="card-bottom">
-        <span className="card-meta">{data.mentionCount}+ discussões</span>
-        <span className="card-link">Detalhes →</span>
+        <span className="card-meta">{data.mentionCount}+ {t.discussions}</span>
+        <span className="card-link">{t.details} →</span>
       </div>
     </div>
   );
@@ -161,12 +163,13 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHover
 const nodeTypes: NodeTypes = { techNode: TechNode as any };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE PRINCIPAL: GraphView
+// MAIN COMPONENT: GraphView
 // ─────────────────────────────────────────────────────────────────────────────
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export default function GraphView() {
+  const { t, lang, changeLang } = useLang();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [rawApiNodes, setRawApiNodes] = useState<ApiNode[]>([]);
@@ -180,9 +183,9 @@ export default function GraphView() {
   const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
   const [summaryError, setSummaryError] = useState<boolean>(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [showAllEdges, setShowAllEdges] = useState<boolean>(false); // Padrão: sem teia poluída
+  const [showAllEdges, setShowAllEdges] = useState<boolean>(false); // Default: no cluttered web
 
-  // Fetch summary sob demanda quando selectedNode não tem resumo
+  // Fetch the summary on demand when selectedNode has none
   useEffect(() => {
     if (!selectedNode) {
       setSummaryLoading(false);
@@ -201,7 +204,7 @@ export default function GraphView() {
 
     fetch(`${API_BASE_URL}/api/v1/nodes/${selectedNode.id}/summary`)
       .then((res) => {
-        if (!res.ok) throw new Error("Erro ao buscar resumo");
+        if (!res.ok) throw new Error("Failed to fetch summary");
         return res.json();
       })
       .then((data) => {
@@ -232,13 +235,13 @@ export default function GraphView() {
       });
   }, [selectedNode?.id]);
 
-  // Filtros de UI
+  // UI filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [minHype, setMinHype] = useState<number>(1.0);
   const [viewMode, setViewMode] = useState<"columns" | "cards" | "news">("columns");
 
-  // ── Layout em colunas por categoria ─────────────────────────────────────
+  // ── Column layout by category ───────────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
     if (apiNodes.length === 0) return [];
 
@@ -278,7 +281,7 @@ export default function GraphView() {
     return resultNodes;
   }, []);
 
-  // ── Formata as arestas (cor única — sem mapa de cores por relação) ──────
+  // ── Builds the edges (single color — no per-relation color map) ─────────
   const buildEdges = useCallback((apiEdges: ApiEdge[], activeHoverId: string | null, forceShowAll: boolean): Edge[] => {
     return apiEdges
       .filter((e) => {
@@ -324,7 +327,7 @@ export default function GraphView() {
       });
   }, []);
 
-  // ── Busca dados da API ────────────────────────────────────────────────────
+  // ── Fetches data from the API ─────────────────────────────────────────────
   const fetchGraphData = useCallback(async (d: number) => {
     setLoading(true);
     setError(null);
@@ -333,7 +336,7 @@ export default function GraphView() {
         fetch(`${API_BASE_URL}/api/v1/graph?days=${d}`),
         fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=100`),
       ]);
-      if (!graphRes.ok) throw new Error(`API retornou status ${graphRes.status}`);
+      if (!graphRes.ok) throw new Error(`API error ${graphRes.status}`);
 
       const graphData: GraphData = await graphRes.json();
       setRawApiNodes(graphData.nodes || []);
@@ -347,7 +350,7 @@ export default function GraphView() {
         setNewsArticles(articlesData.articles || []);
       }
     } catch (err: any) {
-      setError(err.message ?? "Erro ao carregar os dados de estudo.");
+      setError(err.message || "load-failed"); // "load-failed" is translated at render time
     } finally {
       setLoading(false);
     }
@@ -357,7 +360,7 @@ export default function GraphView() {
     fetchGraphData(days);
   }, [days, fetchGraphData]);
 
-  // Recalcula nós e arestas ao passar o mouse ou mudar o toggle de teia
+  // Recomputes nodes and edges on hover or when the web toggle changes
   useEffect(() => {
     setNodes((prev) =>
       prev.map((n) => ({
@@ -372,7 +375,7 @@ export default function GraphView() {
     setEdges(buildEdges(rawApiEdges, hoveredNodeId, showAllEdges));
   }, [hoveredNodeId, showAllEdges, rawApiEdges, buildEdges, setNodes, setEdges]);
 
-  // ── Filtros (busca, categoria, relevância) ────────────────────────────────
+  // ── Filters (search, category, relevance) ─────────────────────────────────
   const filteredApiNodes = useMemo(() => {
     return rawApiNodes.filter((node) => {
       const matchesSearch = searchQuery === "" || node.label.toLowerCase().includes(searchQuery.toLowerCase());
@@ -382,7 +385,7 @@ export default function GraphView() {
     });
   }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
 
-  // ── Agrupamento por categoria (painel de curadoria do modo "Colunas") ────
+  // ── Grouping by category (curation panel of the "Columns" mode) ─────────
   const groupedByCategory = useMemo(() => {
     const map: Record<string, ApiNode[]> = {};
     filteredApiNodes.forEach((node) => {
@@ -394,7 +397,7 @@ export default function GraphView() {
     return map;
   }, [filteredApiNodes]);
 
-  // ── Agrupamento de artigos por categoria (aba "Notícias", estilo hackertab) ──
+  // ── Article grouping by category ("News" tab, hackertab style) ──────────
   const groupedArticlesByCategory = useMemo(() => {
     const map: Record<string, ApiArticle[]> = {};
     newsArticles.forEach((article) => {
@@ -431,8 +434,9 @@ export default function GraphView() {
     setSelectedNode(node.data as ApiNode);
   }, []);
 
-  // ── Renderização ──────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
+    <I18nContext.Provider value={t}>
     <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}>
       <header className="app-header">
         <div className="header-row">
@@ -443,7 +447,7 @@ export default function GraphView() {
             </svg>
             <div className="brand-text">
               <h1>Reticle</h1>
-              <p>the hype, mapped daily</p>
+              <p>{t.tagline}</p>
             </div>
           </div>
 
@@ -454,7 +458,7 @@ export default function GraphView() {
               </svg>
               <input
                 type="text"
-                placeholder="buscar_tecnologia"
+                placeholder={t.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -464,7 +468,7 @@ export default function GraphView() {
             </div>
 
             <div className="toggle-switch">
-              <span>Conectar ao passar o mouse</span>
+              <span>{t.connectOnHover}</span>
               <div
                 className={`switch-track ${showAllEdges ? "on" : ""}`}
                 onClick={() => setShowAllEdges((v) => !v)}
@@ -474,14 +478,20 @@ export default function GraphView() {
             </div>
 
             <div className="segmented">
-              <button className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>Colunas</button>
-              <button className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>Grid</button>
-              <button className={viewMode === "news" ? "active" : ""} onClick={() => setViewMode("news")}>Notícias</button>
+              <button className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>{t.viewColumns}</button>
+              <button className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>{t.viewGrid}</button>
+              <button className={viewMode === "news" ? "active" : ""} onClick={() => setViewMode("news")}>{t.viewNews}</button>
             </div>
 
             <div className="segmented">
               {[3, 7, 14, 30].map((d) => (
                 <button key={d} className={days === d ? "active" : ""} onClick={() => setDays(d)}>{d}D</button>
+              ))}
+            </div>
+
+            <div className="segmented">
+              {(["en", "pt"] as Lang[]).map((l) => (
+                <button key={l} className={lang === l ? "active" : ""} onClick={() => changeLang(l)}>{l.toUpperCase()}</button>
               ))}
             </div>
           </div>
@@ -492,20 +502,20 @@ export default function GraphView() {
 
       <div className="filter-row">
         <div className="filter-group">
-          <span className="filter-label">Área</span>
+          <span className="filter-label">{t.area}</span>
           {["ALL", ...COLUMN_ORDER].map((cat) => (
             <button
               key={cat}
               className={`pill ${selectedCategory === cat ? "active" : ""}`}
               onClick={() => setSelectedCategory(cat)}
             >
-              {cat === "ALL" ? "Todas" : cat}
+              {cat === "ALL" ? t.all : cat}
             </button>
           ))}
         </div>
 
         <div className="filter-group relevance-group">
-          <span className="filter-label">Relevância</span>
+          <span className="filter-label">{t.relevance}</span>
           {[1.0, 1.5, 2.0].map((h) => (
             <button
               key={h}
@@ -522,14 +532,14 @@ export default function GraphView() {
         {loading && (
           <div className="state-screen">
             <div className="spinner" />
-            <p>Organizando materiais de estudo...</p>
+            <p>{t.loading}</p>
           </div>
         )}
 
         {error && !loading && (
           <div className="state-screen">
-            <p className="state-error">{error}</p>
-            <button className="pill" onClick={() => fetchGraphData(days)}>Tentar novamente</button>
+            <p className="state-error">{error === "load-failed" ? t.loadError : error}</p>
+            <button className="pill" onClick={() => fetchGraphData(days)}>{t.retry}</button>
           </div>
         )}
 
@@ -556,8 +566,8 @@ export default function GraphView() {
                         </div>
                         <div className="card-title">{node.label}</div>
                         <div className="card-bottom">
-                          <span className="card-meta">{node.mentionCount}+ discussões</span>
-                          <span className="card-link">Estudar →</span>
+                          <span className="card-meta">{node.mentionCount}+ {t.discussions}</span>
+                          <span className="card-link">{t.study} →</span>
                         </div>
                       </div>
                     ))}
@@ -566,7 +576,7 @@ export default function GraphView() {
               );
             })}
             {filteredApiNodes.length === 0 && (
-              <div className="empty-state">Nenhuma tecnologia encontrada para os filtros selecionados.</div>
+              <div className="empty-state">{t.emptyNodes}</div>
             )}
           </div>
         )}
@@ -596,7 +606,7 @@ export default function GraphView() {
                         >
                           <div className="news-item-top">
                             <span className="tag">{platformLabel}</span>
-                            <span className="card-meta">{timeAgo(article.createdAt)}</span>
+                            <span className="card-meta">{timeAgo(article.createdAt, t.now)}</span>
                           </div>
                           <div className="news-item-title">{article.title}</div>
                           <span className="card-meta">{article.nodeLabel}</span>
@@ -608,7 +618,7 @@ export default function GraphView() {
               );
             })}
             {newsArticles.length === 0 && (
-              <div className="empty-state">Nenhuma notícia coletada ainda para o período selecionado.</div>
+              <div className="empty-state">{t.emptyNews}</div>
             )}
           </div>
         )}
@@ -635,7 +645,7 @@ export default function GraphView() {
         )}
       </div>
 
-      {/* ── MODAL DE DETALHES DO TÓPICO ── */}
+      {/* ── TOPIC DETAILS MODAL ── */}
       {selectedNode && (() => {
         const platform = detectPlatform(selectedNode.sourceUrl, selectedNode.sourcePlatform);
         const platformLabel = SOURCE_LABELS[platform] ?? platform;
@@ -658,21 +668,21 @@ export default function GraphView() {
 
               <div style={{ marginTop: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
                 <div className="modal-section">
-                  <div className="modal-section-label">Resumo</div>
+                  <div className="modal-section-label">{t.summary}</div>
                   {summaryLoading ? (
-                    <p className="modal-body-text" style={{ color: "var(--text-secondary)" }}>Carregando resumo técnico...</p>
+                    <p className="modal-body-text" style={{ color: "var(--text-secondary)" }}>{t.summaryLoading}</p>
                   ) : selectedNode.summary && selectedNode.summary.trim().length > 0 ? (
                     <p className="modal-body-text">{selectedNode.summary}</p>
                   ) : (
                     <p className="modal-body-text" style={{ color: "var(--text-tertiary)", fontStyle: "italic" }}>
-                      Não foi possível carregar o resumo agora.
+                      {t.summaryError}
                     </p>
                   )}
                 </div>
 
                 {(selectedNode.sourceTitle || selectedNode.sourceUrl) && (
                   <div className="modal-section">
-                    <div className="modal-section-label">Fonte — {platformLabel}</div>
+                    <div className="modal-section-label">{t.source} — {platformLabel}</div>
                     {selectedNode.sourceTitle && (
                       <p className="modal-body-text" style={{ fontWeight: 600, marginBottom: "8px" }}>
                         {selectedNode.sourceTitle}
@@ -680,7 +690,7 @@ export default function GraphView() {
                     )}
                     {selectedNode.sourceUrl && (
                       <a href={selectedNode.sourceUrl} target="_blank" rel="noreferrer" className="card-link" style={{ fontSize: "12px" }}>
-                        Abrir discussão original ↗
+                        {t.openOriginal} ↗
                       </a>
                     )}
                   </div>
@@ -691,18 +701,18 @@ export default function GraphView() {
                     <div className="modal-metric-val">
                       <div className="meter"><Bars val={selectedNode.hypeScore} /><span>{selectedNode.hypeScore.toFixed(1)}</span></div>
                     </div>
-                    <div className="modal-metric-label">Relevância</div>
+                    <div className="modal-metric-label">{t.relevance}</div>
                   </div>
                   <div className="modal-metric">
                     <div className="modal-metric-val">{selectedNode.mentionCount}</div>
-                    <div className="modal-metric-label">Discussões</div>
+                    <div className="modal-metric-label">{t.metricDiscussions}</div>
                   </div>
                 </div>
 
                 <div className="modal-actions">
                   {selectedNode.sourceUrl && (
                     <a href={selectedNode.sourceUrl} target="_blank" rel="noreferrer" className="btn btn-secondary">
-                      Ler no {platformLabel} ↗
+                      {t.readOn} {platformLabel} ↗
                     </a>
                   )}
                 </div>
@@ -712,5 +722,6 @@ export default function GraphView() {
         );
       })()}
     </div>
+    </I18nContext.Provider>
   );
 }
