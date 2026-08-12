@@ -347,6 +347,18 @@ export default function GraphView() {
     });
   }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
 
+  // ── Agrupamento por categoria (painel de curadoria do modo "Colunas") ────
+  const groupedByCategory = useMemo(() => {
+    const map: Record<string, ApiNode[]> = {};
+    filteredApiNodes.forEach((node) => {
+      const cat = node.category || "Concept";
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(node);
+    });
+    Object.values(map).forEach((items) => items.sort((a, b) => b.hypeScore - a.hypeScore));
+    return map;
+  }, [filteredApiNodes]);
+
   useEffect(() => {
     const validIds = new Set(filteredApiNodes.map((n) => n.id));
     setNodes((prevNodes) =>
@@ -381,7 +393,7 @@ export default function GraphView() {
             </svg>
             <div className="brand-text">
               <h1>Dev Trends & Study Hub</h1>
-              <p>HN · REDDIT · DEV.TO · LOBSTERS · STACK OVERFLOW</p>
+              <p>HN · DEV.TO · LOBSTERS · STACK OVERFLOW</p>
             </div>
           </div>
 
@@ -471,6 +483,44 @@ export default function GraphView() {
         )}
 
         {!loading && !error && viewMode === "columns" && (
+          <div className="kanban">
+            {COLUMN_ORDER.map((cat) => {
+              const items = groupedByCategory[cat] || [];
+              if (items.length === 0) return null;
+
+              return (
+                <div key={cat} className="kanban-column">
+                  <div className="kanban-column-header">
+                    {cat.toUpperCase()} · {items.length}
+                  </div>
+                  <div className="kanban-column-body">
+                    {items.map((node) => (
+                      <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
+                        <div className="card-top">
+                          <span className="tag">{node.category}</span>
+                          <div className="meter">
+                            <Bars val={node.hypeScore} />
+                            <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
+                          </div>
+                        </div>
+                        <div className="card-title">{node.label}</div>
+                        <div className="card-bottom">
+                          <span className="card-meta">{node.mentionCount}+ discussões</span>
+                          <span className="card-link">Estudar →</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {filteredApiNodes.length === 0 && (
+              <div className="empty-state">Nenhuma tecnologia encontrada para os filtros selecionados.</div>
+            )}
+          </div>
+        )}
+
+        {!loading && !error && viewMode === "cards" && (
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -489,32 +539,6 @@ export default function GraphView() {
             <Controls />
             <MiniMap nodeColor="#42454B" maskColor="rgba(11, 12, 14, 0.85)" />
           </ReactFlow>
-        )}
-
-        {!loading && !error && viewMode === "cards" && (
-          <div className="cards-grid">
-            <div className="grid">
-              {filteredApiNodes.map((node) => (
-                <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
-                  <div className="card-top">
-                    <span className="tag">{node.category}</span>
-                    <div className="meter">
-                      <Bars val={node.hypeScore} />
-                      <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
-                    </div>
-                  </div>
-                  <div className="card-title">{node.label}</div>
-                  <div className="card-bottom">
-                    <span className="card-meta">{node.mentionCount}+ discussões</span>
-                    <span className="card-link">Estudar →</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {filteredApiNodes.length === 0 && (
-              <div className="empty-state">Nenhuma tecnologia encontrada para os filtros selecionados.</div>
-            )}
-          </div>
         )}
       </div>
 
