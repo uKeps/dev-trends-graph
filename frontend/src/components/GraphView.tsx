@@ -705,14 +705,6 @@ export default function GraphView() {
                       Ler no {platformLabel} ↗
                     </a>
                   )}
-                  <a
-                    href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-primary"
-                  >
-                    Documentação & Tutoriais ↗
-                  </a>
                 </div>
               </div>
             </div>
