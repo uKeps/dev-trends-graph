@@ -49,7 +49,7 @@ public class GraphController {
     public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> status = new LinkedHashMap<>();
         status.put("status", "UP");
-        status.put("service", "dev-trends-graph-api");
+        status.put("service", "reticle-api");
         status.put("timestamp", Instant.now().toString());
         return ResponseEntity.ok(status);
     }

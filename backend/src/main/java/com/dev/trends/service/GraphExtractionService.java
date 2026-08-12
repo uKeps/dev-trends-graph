@@ -43,7 +43,7 @@ public class GraphExtractionService {
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
     private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=4";
     private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
-    private static final String USER_AGENT = "dev-trends-graph/1.0 (tech trends aggregator)";
+    private static final String USER_AGENT = "reticle/1.0 (tech trends aggregator)";
 
     private static final List<String> DEVTO_TAGS = List.of("ai", "javascript", "rust", "devops", "webdev");
 

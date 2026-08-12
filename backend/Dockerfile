@@ -34,7 +34,7 @@ RUN java -Djarmode=layertools -jar /app/target/*.jar extract
 # ---- STAGE 2: Runtime (imagem mínima) -----------------------
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
-LABEL maintainer="dev-trends-graph"
+LABEL maintainer="reticle"
 LABEL version="1.0.0"
 
 # Cria usuário não-root para segurança (boa prática em containers)

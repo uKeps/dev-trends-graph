@@ -36,7 +36,7 @@ class GraphControllerTest {
         mockMvc.perform(get("/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
-                .andExpect(jsonPath("$.service").value("dev-trends-graph-api"))
+                .andExpect(jsonPath("$.service").value("reticle-api"))
                 .andExpect(jsonPath("$.timestamp").exists());
     }
 

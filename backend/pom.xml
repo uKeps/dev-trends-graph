@@ -13,9 +13,9 @@
     </parent>
 
     <groupId>com.dev.trends</groupId>
-    <artifactId>dev-trends-graph</artifactId>
+    <artifactId>reticle</artifactId>
     <version>1.0.0-SNAPSHOT</version>
-    <name>dev-trends-graph</name>
+    <name>reticle</name>
     <description>Mapeador de Tendências da Bolha Dev e IA em Grafos</description>
 
     <properties>

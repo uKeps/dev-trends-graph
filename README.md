@@ -1,4 +1,4 @@
-# Dev Trends Graph
+# Reticle
 
 Mapeador de tendências da comunidade de desenvolvimento e inteligência artificial. A aplicação realiza a ingestão e extração de tópicos emergentes a partir de fontes como Hacker News, Dev.to, StackOverflow e Lobsters, apresentando os conceitos em grafos e grids organizados por categorias.
 

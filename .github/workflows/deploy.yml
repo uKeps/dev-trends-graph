@@ -1,4 +1,4 @@
-name: CI/CD — Dev Trends Graph
+name: CI/CD — Reticle
 
 # =============================================================
 # Trigger: push na branch main
@@ -154,7 +154,7 @@ jobs:
           FRONTEND_STATUS="${{ needs.frontend-build-and-deploy.result }}"
           
           echo "============================================"
-          echo "  Dev Trends Graph — Deploy Summary"
+          echo "  Reticle — Deploy Summary"
           echo "============================================"
           echo "  Backend  (Render): $BACKEND_STATUS"
           echo "  Frontend (Vercel): $FRONTEND_STATUS"

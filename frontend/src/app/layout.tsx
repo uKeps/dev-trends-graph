@@ -24,13 +24,13 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rasante — Dev Trends & Study Hub",
+  title: "Reticle — Dev Trends & Study Hub",
   description:
     "Radar de sinal técnico: varredura de Hacker News, Reddit, Dev.to, Lobsters e Stack Overflow em busca de tendências emergentes no ecossistema dev & IA.",
   keywords: ["IA", "tendências tecnológicas", "grafo", "Hacker News", "Reddit", "Dev.to", "desenvolvimento", "LLM"],
-  authors: [{ name: "Rasante" }],
+  authors: [{ name: "Reticle" }],
   openGraph: {
-    title: "Rasante",
+    title: "Reticle",
     description: "Radar de sinal técnico da bolha dev & IA",
     type: "website",
   },

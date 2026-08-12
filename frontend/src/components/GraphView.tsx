@@ -442,7 +442,7 @@ export default function GraphView() {
               <path d="M15 9L20.5 15L15 21L9.5 15L15 9Z" fill="#ECEDEE" />
             </svg>
             <div className="brand-text">
-              <h1>Dev Trends & Study Hub</h1>
+              <h1>Reticle</h1>
               <p>HN · DEV.TO · LOBSTERS · STACK OVERFLOW</p>
             </div>
           </div>

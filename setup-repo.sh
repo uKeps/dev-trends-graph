@@ -4,7 +4,7 @@
 # Mapeador de Tendências da Bolha Dev e IA em Grafos
 #
 # Uso:
-#   1. Certifique-se de estar na raiz do projeto (dev-trends-graph/)
+#   1. Certifique-se de estar na raiz do projeto (reticle/)
 #   2. Execute: chmod +x setup-repo.sh && ./setup-repo.sh
 #   3. Quando solicitado, insira a URL do seu repositório remoto
 #
@@ -21,7 +21,7 @@ if ! command -v git &>/dev/null; then
 fi
 
 echo "============================================"
-echo "  Dev Trends Graph — Inicialização do Repo"
+echo "  Reticle — Inicialização do Repo"
 echo "============================================"
 echo ""
 
@@ -83,7 +83,7 @@ echo "✅ .gitignore criado."
 
 # ── 3. Cria o README.md ───────────────────────────────────────
 cat > README.md << 'README'
-# 🌐 Dev Trends Graph
+# 🌐 Reticle
 > Mapeador de Tendências da Bolha Dev & IA em Grafos Interativos
 
 Visualização em tempo real das principais tecnologias, frameworks e conceitos
@@ -311,7 +311,7 @@ echo "Commits criados:"
 git log --oneline
 echo ""
 echo "Para conectar ao GitHub, execute:"
-echo "  git remote add origin https://github.com/SEU_USUARIO/dev-trends-graph.git"
+echo "  git remote add origin https://github.com/SEU_USUARIO/reticle.git"
 echo "  git push -u origin main"
 echo ""
 echo "📋 Próximos passos:"
