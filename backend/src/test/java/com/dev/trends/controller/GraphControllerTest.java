@@ -12,6 +12,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -42,7 +43,7 @@ class GraphControllerTest {
 
     @Test
     void graphEndpoint_shouldReturnEmptyGraphForNoData() throws Exception {
-        when(nodeRepository.findNodesSince(7)).thenReturn(List.of());
+        when(nodeRepository.findNodesSince(7, "en")).thenReturn(List.of());
         when(edgeRepository.findEdgesSince(7)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/graph").param("days", "7"))
@@ -50,6 +51,17 @@ class GraphControllerTest {
                 .andExpect(jsonPath("$.nodes").isArray())
                 .andExpect(jsonPath("$.edges").isArray())
                 .andExpect(jsonPath("$.meta.days").value(7));
+    }
+
+    @Test
+    void graphEndpoint_shouldAskRepositoryForPortugueseSummaries() throws Exception {
+        when(nodeRepository.findNodesSince(7, "pt")).thenReturn(List.of());
+        when(edgeRepository.findEdgesSince(7)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/graph").param("days", "7").param("lang", "pt-BR"))
+                .andExpect(status().isOk());
+
+        verify(nodeRepository).findNodesSince(7, "pt");
     }
 
     @Test

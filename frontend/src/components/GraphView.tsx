@@ -24,7 +24,7 @@ import {
   Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { I18nContext, useLang, useT, type Lang } from "@/lib/i18n";
+import { I18nContext, categoryLabel, useLang, useT, type Lang } from "@/lib/i18n";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -143,7 +143,7 @@ function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHover
       <Handle type="source" position={Position.Right} className="graph-handle" />
 
       <div className="card-top">
-        <span className="tag">{data.category}</span>
+        <span className="tag">{categoryLabel(t, data.category)}</span>
         <div className="meter">
           <Bars val={data.hypeScore} />
           <span className="meter-val">{data.hypeScore.toFixed(1)}</span>
@@ -202,7 +202,7 @@ export default function GraphView() {
     setSummaryLoading(true);
     setSummaryError(false);
 
-    fetch(`${API_BASE_URL}/api/v1/nodes/${selectedNode.id}/summary`)
+    fetch(`${API_BASE_URL}/api/v1/nodes/${selectedNode.id}/summary?lang=${lang}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to fetch summary");
         return res.json();
@@ -233,7 +233,12 @@ export default function GraphView() {
       .finally(() => {
         setSummaryLoading(false);
       });
-  }, [selectedNode?.id]);
+  }, [selectedNode?.id, lang]);
+
+  // Summaries are per language: close the modal instead of showing a stale translation.
+  useEffect(() => {
+    setSelectedNode(null);
+  }, [lang]);
 
   // UI filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -333,7 +338,7 @@ export default function GraphView() {
     setError(null);
     try {
       const [graphRes, articlesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/v1/graph?days=${d}`),
+        fetch(`${API_BASE_URL}/api/v1/graph?days=${d}&lang=${lang}`),
         fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=100`),
       ]);
       if (!graphRes.ok) throw new Error(`API error ${graphRes.status}`);
@@ -354,7 +359,7 @@ export default function GraphView() {
     } finally {
       setLoading(false);
     }
-  }, [layoutNodesByColumns, buildEdges, setNodes, setEdges, showAllEdges]);
+  }, [layoutNodesByColumns, buildEdges, setNodes, setEdges, showAllEdges, lang]);
 
   useEffect(() => {
     fetchGraphData(days);
@@ -509,7 +514,7 @@ export default function GraphView() {
               className={`pill ${selectedCategory === cat ? "active" : ""}`}
               onClick={() => setSelectedCategory(cat)}
             >
-              {cat === "ALL" ? t.all : cat}
+              {cat === "ALL" ? t.all : categoryLabel(t, cat)}
             </button>
           ))}
         </div>
@@ -552,13 +557,13 @@ export default function GraphView() {
               return (
                 <div key={cat} className="kanban-column">
                   <div className="kanban-column-header">
-                    {cat.toUpperCase()} · {items.length}
+                    {categoryLabel(t, cat).toUpperCase()} · {items.length}
                   </div>
                   <div className="kanban-column-body">
                     {items.map((node) => (
                       <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
                         <div className="card-top">
-                          <span className="tag">{node.category}</span>
+                          <span className="tag">{categoryLabel(t, node.category)}</span>
                           <div className="meter">
                             <Bars val={node.hypeScore} />
                             <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
@@ -590,7 +595,7 @@ export default function GraphView() {
               return (
                 <div key={cat} className="kanban-column">
                   <div className="kanban-column-header">
-                    {cat.toUpperCase()} · {items.length}
+                    {categoryLabel(t, cat).toUpperCase()} · {items.length}
                   </div>
                   <div className="kanban-column-body">
                     {items.map((article, idx) => {
@@ -658,7 +663,7 @@ export default function GraphView() {
               <div className="modal-header">
                 <div style={{ flex: 1 }}>
                   <div className="modal-tags">
-                    <span className="tag">{selectedNode.category}</span>
+                    <span className="tag">{categoryLabel(t, selectedNode.category)}</span>
                     <span className="tag">{platformLabel}</span>
                   </div>
                   <h2 className="modal-title">{selectedNode.label}</h2>

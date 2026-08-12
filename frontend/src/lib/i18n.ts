@@ -16,7 +16,6 @@ export const dict = {
     loading: "Organizing study material...",
     retry: "Try again",
     loadError: "Could not load the data.",
-    apiError: "API returned status",
     emptyNodes: "No technology matches the selected filters.",
     emptyNews: "No news collected yet for the selected period.",
     discussions: "discussions",
@@ -30,6 +29,14 @@ export const dict = {
     openOriginal: "Open original discussion",
     metricDiscussions: "Discussions",
     readOn: "Read on",
+    categories: {
+      Model: "Model",
+      Framework: "Framework",
+      Tool: "Tool",
+      Language: "Language",
+      Platform: "Platform",
+      Concept: "Concept",
+    },
   },
   pt: {
     tagline: "the hype, mapped daily",
@@ -44,7 +51,6 @@ export const dict = {
     loading: "Organizando materiais de estudo...",
     retry: "Tentar novamente",
     loadError: "Erro ao carregar os dados de estudo.",
-    apiError: "API retornou status",
     emptyNodes: "Nenhuma tecnologia encontrada para os filtros selecionados.",
     emptyNews: "Nenhuma notícia coletada ainda para o período selecionado.",
     discussions: "discussões",
@@ -58,6 +64,14 @@ export const dict = {
     openOriginal: "Abrir discussão original",
     metricDiscussions: "Discussões",
     readOn: "Ler no",
+    categories: {
+      Model: "Modelo",
+      Framework: "Framework",
+      Tool: "Ferramenta",
+      Language: "Linguagem",
+      Platform: "Plataforma",
+      Concept: "Conceito",
+    },
   },
 } as const;
 
@@ -67,6 +81,10 @@ export type Dict = (typeof dict)[Lang];
 /** Lets graph nodes rendered by React Flow read the active dictionary. */
 export const I18nContext = createContext<Dict>(dict.en);
 export const useT = () => useContext(I18nContext);
+
+/** Category names come from the API in English; falls back to the raw value. */
+export const categoryLabel = (t: Dict, category: string) =>
+  (t.categories as Record<string, string>)[category] ?? category;
 
 const HTML_LANG: Record<Lang, string> = { en: "en", pt: "pt-BR" };
 

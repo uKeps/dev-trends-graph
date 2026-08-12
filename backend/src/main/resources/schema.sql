@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     first_seen  TIMESTAMPTZ       NOT NULL DEFAULT now(),
     last_seen   TIMESTAMPTZ       NOT NULL DEFAULT now(),
     mention_count INT             NOT NULL DEFAULT 1,
-    summary         TEXT,
+    summary         TEXT,   -- resumo em português (coluna histórica)
+    summary_en      TEXT,   -- resumo em inglês (idioma padrão da UI)
     source_url      TEXT,
     source_title    TEXT,
     source_platform VARCHAR(50),

@@ -61,12 +61,22 @@ public class NodeRepository {
     public void ensureSourceColumnsExist() {
         try {
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary TEXT;");
+            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary_en TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_url TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_title TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_platform VARCHAR(50);");
         } catch (Exception e) {
             // Ignora se já existirem
         }
+    }
+
+    /**
+     * Coluna do resumo por idioma. "summary" é a coluna histórica, em português;
+     * o inglês (padrão da UI) vive em "summary_en". Só retorna literais — nunca
+     * o valor cru do parâmetro — para não abrir injeção de SQL.
+     */
+    private static String summaryColumn(String lang) {
+        return "pt".equals(lang) ? "summary" : "summary_en";
     }
 
     /**
@@ -116,10 +126,10 @@ public class NodeRepository {
     /**
      * Retorna todos os nós que foram vistos desde N dias atrás, ignorando termos genéricos de TI.
      */
-    public List<Node> findNodesSince(int days) {
+    public List<Node> findNodesSince(int days, String lang) {
         ensureSourceColumnsExist();
         String sql = """
-                SELECT id, label, category, summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
+                SELECT id, label, category, %s AS summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
                 WHERE last_seen >= NOW() - (? || ' days')::INTERVAL
                   AND LOWER(label) NOT IN (
@@ -128,7 +138,7 @@ public class NodeRepository {
                     'blog', 'system', 'file', 'code', 'tech', 'technology', 'data', 'app'
                   )
                 ORDER BY hype_score DESC
-                """;
+                """.formatted(summaryColumn(lang));
         return jdbc.query(sql, (rs, rowNum) -> {
             Node n = new Node(
                     UUID.fromString(rs.getString("id")),
@@ -150,13 +160,13 @@ public class NodeRepository {
     /**
      * Busca um nó pelo ID incluindo summary, source_url, source_title e source_platform.
      */
-    public Optional<Node> findById(UUID id) {
+    public Optional<Node> findById(UUID id, String lang) {
         ensureSourceColumnsExist();
         String sql = """
-                SELECT id, label, category, summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
+                SELECT id, label, category, %s AS summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
                 WHERE id = ?
-                """;
+                """.formatted(summaryColumn(lang));
         List<Node> result = jdbc.query(sql, (rs, rowNum) -> {
             Node n = new Node(
                     UUID.fromString(rs.getString("id")),
@@ -179,9 +189,9 @@ public class NodeRepository {
     /**
      * Atualiza o resumo (summary) de um nó pelo ID.
      */
-    public void updateSummary(UUID id, String summary) {
+    public void updateSummary(UUID id, String summary, String lang) {
         ensureSourceColumnsExist();
-        String sql = "UPDATE nodes SET summary = ? WHERE id = ?";
+        String sql = "UPDATE nodes SET " + summaryColumn(lang) + " = ? WHERE id = ?";
         jdbc.update(sql, summary, id);
     }
 

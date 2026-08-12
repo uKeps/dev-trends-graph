@@ -36,6 +36,11 @@ public class GraphController {
         this.graphExtractionService = graphExtractionService;
     }
 
+    /** Idioma dos resumos: "pt" para português, qualquer outro valor cai no inglês (padrão). */
+    private static String normalizeLang(String lang) {
+        return lang != null && lang.toLowerCase().startsWith("pt") ? "pt" : "en";
+    }
+
     // =========================================================
     // HEALTH CHECK — exigido pelo Render para verificação de saúde
     // =========================================================
@@ -69,7 +74,8 @@ public class GraphController {
      */
     @GetMapping("/api/v1/graph")
     public ResponseEntity<Map<String, Object>> getGraph(
-            @RequestParam(defaultValue = "7") int days) {
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(defaultValue = "en") String lang) {
 
         if (days < 1 || days > 365) {
             return ResponseEntity.badRequest()
@@ -77,7 +83,7 @@ public class GraphController {
         }
 
         try {
-            List<Node> nodes = nodeRepository.findNodesSince(days);
+            List<Node> nodes = nodeRepository.findNodesSince(days, normalizeLang(lang));
             List<Edge> edges = edgeRepository.findEdgesSince(days);
 
             // Formata nós no padrão React Flow
@@ -273,8 +279,12 @@ public class GraphController {
      * Se o nó não tiver sourceUrl, busca ao vivo via HN Algolia e persiste o resultado.
      */
     @GetMapping("/api/v1/nodes/{id}/summary")
-    public ResponseEntity<Map<String, Object>> getNodeSummary(@PathVariable UUID id) {
-        Node node = nodeRepository.findById(id).orElse(null);
+    public ResponseEntity<Map<String, Object>> getNodeSummary(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "en") String lang) {
+
+        String language = normalizeLang(lang);
+        Node node = nodeRepository.findById(id, language).orElse(null);
         if (node == null) {
             return ResponseEntity.notFound().build();
         }
@@ -283,9 +293,9 @@ public class GraphController {
         boolean summaryCached = summary != null && !summary.isBlank();
         if (!summaryCached) {
             summary = graphExtractionService.generateTopicSummary(
-                    node.getLabel(), node.getCategory(), node.getSourceTitle(), node.getSourceUrl());
+                    node.getLabel(), node.getCategory(), node.getSourceTitle(), node.getSourceUrl(), language);
             if (summary != null && !summary.isBlank()) {
-                nodeRepository.updateSummary(id, summary);
+                nodeRepository.updateSummary(id, summary, language);
             }
         }
 

@@ -20,10 +20,12 @@ The web interface ships in English by default, with a pt-BR translation availabl
 ## Main Endpoints
 
 - `GET /health`: API health check.
-- `GET /api/v1/graph?days=7`: Returns nodes and edges filtered by period.
+- `GET /api/v1/graph?days=7&lang=en`: Returns nodes and edges filtered by period.
 - `GET /api/v1/articles?days=7&limit=100`: Returns the collected articles, grouped by topic in the UI.
 - `GET /api/v1/trends`: Returns the topics with the highest relevance score.
-- `GET /api/v1/nodes/{id}/summary`: Returns (or generates on demand) the technical summary of a topic.
+- `GET /api/v1/nodes/{id}/summary?lang=en`: Returns (or generates on demand) the technical summary of a topic.
+
+Topic summaries are generated and cached per language — `lang=pt` serves Portuguese, anything else serves English (the default).
 - `POST /api/v1/ingest`: Manually triggers the ingestion pipeline.
 
 ## Running Locally

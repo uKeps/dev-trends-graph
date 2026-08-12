@@ -534,24 +534,38 @@ public class GraphExtractionService {
         }
     }
 
+    private static final String SUMMARY_PROMPT_EN = """
+            Explain ONE specific technology technically, in 2-3 sentences, in English.
+            Say what it IS and what it DOES — do not talk about "trends" or "recent discussions".
+
+            BAD (do not do this): "React is a rising technology in the dev ecosystem, with recent discussions in the developer bubble."
+
+            GOOD: "React is a JavaScript library for building declarative component-based interfaces, using a virtual DOM to optimize re-renders."
+            """;
+
+    private static final String SUMMARY_PROMPT_PT = """
+            Explique tecnicamente UMA tecnologia específica em 2-3 frases em português.
+            Diga o que ela É e o que ela FAZ — não fale sobre "tendências" ou "discussões recentes".
+
+            RUIM (não faça isso): "React é uma tecnologia em ascensão no ecossistema dev, com discussões recentes na bolha de desenvolvimento."
+
+            BOM: "React é uma biblioteca JavaScript para construir interfaces declarativas baseadas em componentes, usando um DOM virtual para otimizar re-renderizações."
+            """;
+
     /**
-     * Gera um resumo técnico e específico em português para UMA tecnologia sob demanda.
+     * Gera um resumo técnico e específico para UMA tecnologia sob demanda, no idioma pedido
+     * ("pt" para português, qualquer outro valor cai no inglês, que é o padrão da UI).
      */
-    public String generateTopicSummary(String label, String category, String sourceTitle, String sourceUrl) {
+    public String generateTopicSummary(String label, String category, String sourceTitle, String sourceUrl, String lang) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Não é possível gerar resumo sob demanda.");
             return null;
         }
 
-        String system = """
-                Explique tecnicamente UMA tecnologia específica em 2-3 frases em português.
-                Diga o que ela É e o que ela FAZ — não fale sobre "tendências" ou "discussões recentes".
-
-                RUIM (não faça isso): "React é uma tecnologia em ascensão no ecossistema dev, com discussões recentes na bolha de desenvolvimento."
-
-                BOM: "React é uma biblioteca JavaScript para construir interfaces declarativas baseadas em componentes, usando um DOM virtual para otimizar re-renderizações."
-                """;
-        String user = "Tecnologia: %s\nCategoria: %s\nContexto (artigo que a mencionou): \"%s\" (%s)"
+        boolean pt = "pt".equals(lang);
+        String system = pt ? SUMMARY_PROMPT_PT : SUMMARY_PROMPT_EN;
+        String user = (pt ? "Tecnologia: %s\nCategoria: %s\nContexto (artigo que a mencionou): \"%s\" (%s)"
+                          : "Technology: %s\nCategory: %s\nContext (article that mentioned it): \"%s\" (%s)")
                 .formatted(label, category, sourceTitle != null ? sourceTitle : "", sourceUrl != null ? sourceUrl : "");
 
         try {
@@ -599,16 +613,6 @@ public class GraphExtractionService {
         if (url.contains("dev.to")) return "devto";
         if (url.contains("lobste.rs")) return "lobsters";
         return "web";
-    }
-
-    private String buildDefaultSummary(String label, String category) {
-        return switch (category.toLowerCase()) {
-            case "framework" -> label + " é um framework em alta focado em escalabilidade, arquitetura limpa e produtividade.";
-            case "tool", "platform" -> label + " é uma ferramenta/plataforma essencial para otimização de workflow, infraestrutura e devops.";
-            case "model" -> label + " é um modelo de Inteligência Artificial emergente com capacidades avançadas de raciocínio e geração.";
-            case "language" -> label + " é uma linguagem/runtime moderna com foco em performance, segurança de memória e concorrência.";
-            default -> label + " é um conceito/tecnologia em destaque nas discussões recentes de engenharia de software.";
-        };
     }
 
     private boolean isBlacklisted(String label) {
