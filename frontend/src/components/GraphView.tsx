@@ -19,7 +19,6 @@ import {
   type Connection,
   type NodeTypes,
   MarkerType,
-  Panel,
   BackgroundVariant,
   Handle,
   Position,
@@ -67,43 +66,15 @@ interface GraphData {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTES DE CORES POR CATEGORIA
-// ─────────────────────────────────────────────────────────────────────────────
-
-const CATEGORY_COLORS: Record<string, { bg: string; border: string; text: string; glow: string; badgeBg: string }> = {
-  Model:     { bg: "#1e112a", border: "#a855f7", text: "#e9d5ff", glow: "rgba(168,85,247,0.4)", badgeBg: "rgba(168,85,247,0.2)" },
-  Framework: { bg: "#062319", border: "#10b981", text: "#a7f3d0", glow: "rgba(16,185,129,0.4)", badgeBg: "rgba(16,185,129,0.2)" },
-  Tool:      { bg: "#16230a", border: "#84cc16", text: "#d9f99d", glow: "rgba(132,204,22,0.4)",  badgeBg: "rgba(132,204,22,0.2)"  },
-  Language:  { bg: "#170f38", border: "#6366f1", text: "#c7d2fe", glow: "rgba(99,102,241,0.4)",  badgeBg: "rgba(99,102,241,0.2)"  },
-  Platform:  { bg: "#0b192e", border: "#0284c7", text: "#bae6fd", glow: "rgba(2,132,199,0.4)",  badgeBg: "rgba(2,132,199,0.2)"  },
-  Concept:   { bg: "#271507", border: "#f59e0b", text: "#fde68a", glow: "rgba(245,158,11,0.4)", badgeBg: "rgba(245,158,11,0.2)" },
-  Company:   { bg: "#260a0a", border: "#ef4444", text: "#fecaca", glow: "rgba(239,68,68,0.4)",  badgeBg: "rgba(239,68,68,0.2)"  },
-  Technology:{ bg: "#061f26", border: "#06b6d4", text: "#c5f6fa", glow: "rgba(6,182,212,0.4)",  badgeBg: "rgba(6,182,212,0.2)"  },
-  default:   { bg: "#0f172a", border: "#475569", text: "#cbd5e1", glow: "rgba(71,85,105,0.4)", badgeBg: "rgba(71,85,105,0.2)" },
-};
-
-const RELATION_COLORS: Record<string, string> = {
-  USES:             "#10b981",
-  COMPETES_WITH:    "#ef4444",
-  EVOLVED_FROM:     "#a855f7",
-  PART_OF:          "#0284c7",
-  REPLACES:         "#f59e0b",
-  INTEGRATES_WITH:  "#06b6d4",
-  RUNS_ON:          "#84cc16",
-  RELATED_TO:       "#64748b",
-};
-
-// Order de exibição das colunas no canvas
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
 
-const SOURCE_PLATFORMS: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  hackernews:    { label: "Hacker News",  icon: "🔶", color: "#f97316", bg: "rgba(249,115,22,0.15)" },
-  reddit:        { label: "Reddit",       icon: "🔴", color: "#ef4444", bg: "rgba(239,68,68,0.15)" },
-  devto:         { label: "Dev.to",       icon: "💜", color: "#a78bfa", bg: "rgba(167,139,250,0.15)" },
-  lobsters:      { label: "Lobsters",     icon: "🦞", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
-  stackoverflow: { label: "Stack Overflow", icon: "📚", color: "#f48024", bg: "rgba(244,128,36,0.15)" },
-  web:           { label: "Web",          icon: "🌐", color: "#64748b", bg: "rgba(100,116,139,0.15)" },
+const SOURCE_LABELS: Record<string, string> = {
+  hackernews: "Hacker News",
+  reddit: "Reddit",
+  devto: "Dev.to",
+  lobsters: "Lobsters",
+  stackoverflow: "Stack Overflow",
+  web: "Web",
 };
 
 function detectPlatform(url?: string, platform?: string): string {
@@ -117,75 +88,50 @@ function detectPlatform(url?: string, platform?: string): string {
   return "web";
 }
 
+// Medidor de relevância (bars) — substitui ícone decorativo por reforço visual discreto
+function Bars({ val }: { val: number }) {
+  const filled = Math.min(5, Math.ceil(val / 2));
+  return (
+    <div className="bars">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <i key={i} className={i < filled ? "on" : ""} />
+      ))}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENTE: Nó customizado (Cards limpos)
+// COMPONENTE: Nó do grafo (reaproveita a anatomia única de .card)
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TechNode({ data }: { data: ApiNode & { isHighlighted?: boolean; isHovered?: boolean; onHover?: (id: string | null) => void } }) {
-  const colors = CATEGORY_COLORS[data.category] ?? CATEGORY_COLORS.default;
   const isDimmed = data.isHighlighted === false;
+  const classes = ["card", "graph-card"];
+  if (data.isHovered) classes.push("is-hovered");
+  if (isDimmed) classes.push("is-dimmed");
 
   return (
     <div
+      className={classes.join(" ")}
       onMouseEnter={() => data.onHover?.(data.id)}
       onMouseLeave={() => data.onHover?.(null)}
-      style={{
-        background: colors.bg,
-        border: `2px solid ${colors.border}`,
-        borderRadius: "14px",
-        padding: "14px 18px",
-        width: "240px",
-        boxShadow: data.isHovered
-          ? `0 0 24px ${colors.glow}, 0 8px 20px rgba(0,0,0,0.8)`
-          : isDimmed
-          ? "none"
-          : `0 4px 14px rgba(0,0,0,0.5)`,
-        opacity: isDimmed ? 0.2 : 1,
-        transform: data.isHovered ? "scale(1.04)" : "scale(1)",
-        cursor: "pointer",
-        transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
-        fontFamily: "'Inter', sans-serif",
-        position: "relative",
-      }}
     >
-      <Handle type="target" position={Position.Left} style={{ background: colors.border, width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ background: colors.border, width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Left} className="graph-handle" />
+      <Handle type="source" position={Position.Right} className="graph-handle" />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-        <span
-          style={{
-            fontSize: "10px",
-            fontWeight: 700,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: colors.border,
-            background: colors.badgeBg,
-            padding: "3px 8px",
-            borderRadius: "6px",
-          }}
-        >
-          {data.category}
-        </span>
-        <span style={{ fontSize: "11px", fontWeight: 700, color: "#f59e0b" }}>
-          🔥 {data.hypeScore.toFixed(1)}
-        </span>
+      <div className="card-top">
+        <span className="tag">{data.category}</span>
+        <div className="meter">
+          <Bars val={data.hypeScore} />
+          <span className="meter-val">{data.hypeScore.toFixed(1)}</span>
+        </div>
       </div>
 
-      <div
-        style={{
-          fontSize: "15px",
-          fontWeight: 700,
-          color: colors.text,
-          lineHeight: 1.3,
-          wordBreak: "break-word",
-        }}
-      >
-        {data.label}
-      </div>
+      <div className="card-title">{data.label}</div>
 
-      <div style={{ marginTop: "10px", fontSize: "11px", color: "#94a3b8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>{data.mentionCount}× discussões</span>
-        <span style={{ color: colors.border, fontWeight: 600, fontSize: "10px" }}>Detalhes →</span>
+      <div className="card-bottom">
+        <span className="card-meta">{data.mentionCount}+ discussões</span>
+        <span className="card-link">Detalhes →</span>
       </div>
     </div>
   );
@@ -214,7 +160,7 @@ export default function GraphView() {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [showAllEdges, setShowAllEdges] = useState<boolean>(false); // Padrão: sem teia poluída
 
-  // Fetch summary under demand when selectedNode has no summary
+  // Fetch summary sob demanda quando selectedNode não tem resumo
   useEffect(() => {
     if (!selectedNode) {
       setSummaryLoading(false);
@@ -265,11 +211,10 @@ export default function GraphView() {
   const [minHype, setMinHype] = useState<number>(1.0);
   const [viewMode, setViewMode] = useState<"columns" | "cards">("columns");
 
-  // ── Layout em Colunas de Categoria (Espaçamento Rigoroso Sem Sobreposição) ──
+  // ── Layout em colunas por categoria ─────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
     if (apiNodes.length === 0) return [];
 
-    // Agrupa por categoria
     const categoryMap: Record<string, ApiNode[]> = {};
     apiNodes.forEach((n) => {
       const cat = n.category || "Concept";
@@ -278,17 +223,16 @@ export default function GraphView() {
     });
 
     const resultNodes: Node[] = [];
-    const columnWidth = 340; // Espaço horizontal seguro entre colunas
+    const columnWidth = 280;
 
     COLUMN_ORDER.forEach((catKey, colIdx) => {
       const categoryNodes = categoryMap[catKey] || [];
-      // Ordena por hype score dentro da coluna
       categoryNodes.sort((a, b) => b.hypeScore - a.hypeScore);
 
       const x = colIdx * columnWidth;
 
       categoryNodes.forEach((node, rowIdx) => {
-        const y = rowIdx * 150 + 60; // 150px de distância vertical garante ZERO sobreposição
+        const y = rowIdx * 140 + 60;
 
         resultNodes.push({
           id: node.id,
@@ -307,12 +251,11 @@ export default function GraphView() {
     return resultNodes;
   }, []);
 
-  // ── Formata as arestas (Exibe linhas de forma limpa ou sob hover) ─────────
+  // ── Formata as arestas (cor única — sem mapa de cores por relação) ──────
   const buildEdges = useCallback((apiEdges: ApiEdge[], activeHoverId: string | null, forceShowAll: boolean): Edge[] => {
     return apiEdges
       .filter((e) => {
         if (forceShowAll) return true;
-        // Se a teia estiver desativada, mostra linhas APENAS do nó que o usuário passou o mouse por cima
         if (activeHoverId) {
           return e.source === activeHoverId || e.target === activeHoverId;
         }
@@ -329,26 +272,27 @@ export default function GraphView() {
           animated: true,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: RELATION_COLORS[e.relationType] ?? "#64748b",
-            width: 16,
-            height: 16,
+            color: "#42454B",
+            width: 14,
+            height: 14,
           },
           style: {
-            stroke: RELATION_COLORS[e.relationType] ?? "#64748b",
-            strokeWidth: isHoverConnected ? 3.5 : 2,
-            opacity: isHoverConnected ? 1 : 0.6,
+            stroke: "#42454B",
+            strokeWidth: isHoverConnected ? 2.5 : 1.5,
+            opacity: isHoverConnected ? 1 : 0.5,
           },
           labelStyle: {
-            fill: "#f8fafc",
-            fontSize: 11,
-            fontWeight: 700,
-            fontFamily: "'Inter', sans-serif",
+            fill: "#8C9096",
+            fontSize: 10,
+            fontWeight: 600,
+            fontFamily: "var(--font-mono)",
           },
           labelBgStyle: {
-            fill: "rgba(15, 23, 42, 0.95)",
-            rx: 6,
+            fill: "#161719",
+            stroke: "#2A2C30",
+            rx: 3,
           },
-          labelBgPadding: [8, 5] as [number, number],
+          labelBgPadding: [6, 4] as [number, number],
         };
       });
   }, []);
@@ -364,7 +308,7 @@ export default function GraphView() {
       const graphData: GraphData = await graphRes.json();
       setRawApiNodes(graphData.nodes || []);
       setRawApiEdges(graphData.edges || []);
-      
+
       setNodes(layoutNodesByColumns(graphData.nodes || [], null));
       setEdges(buildEdges(graphData.edges || [], null, showAllEdges));
     } catch (err: any) {
@@ -378,7 +322,7 @@ export default function GraphView() {
     fetchGraphData(days);
   }, [days, fetchGraphData]);
 
-  // Recalcula nós e arestas ao passar o mouse por cima de um nó ou mudar botão de teia
+  // Recalcula nós e arestas ao passar o mouse ou mudar o toggle de teia
   useEffect(() => {
     setNodes((prev) =>
       prev.map((n) => ({
@@ -393,7 +337,7 @@ export default function GraphView() {
     setEdges(buildEdges(rawApiEdges, hoveredNodeId, showAllEdges));
   }, [hoveredNodeId, showAllEdges, rawApiEdges, buildEdges, setNodes, setEdges]);
 
-  // ── Aplicar Filtros (Busca, Categoria, Hype) ──────────────────────────────
+  // ── Filtros (busca, categoria, relevância) ────────────────────────────────
   const filteredApiNodes = useMemo(() => {
     return rawApiNodes.filter((node) => {
       const matchesSearch = searchQuery === "" || node.label.toLowerCase().includes(searchQuery.toLowerCase());
@@ -403,7 +347,6 @@ export default function GraphView() {
     });
   }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
 
-  // Atualiza destaque
   useEffect(() => {
     const validIds = new Set(filteredApiNodes.map((n) => n.id));
     setNodes((prevNodes) =>
@@ -428,253 +371,105 @@ export default function GraphView() {
 
   // ── Renderização ──────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        width: "100vw",
-        height: "100vh",
-        background: "#020617",
-        position: "relative",
-        fontFamily: "'Inter', sans-serif",
-        color: "#f8fafc",
-        overflow: "hidden",
-      }}
-    >
-      {/* ── HEADER CLEAN E CONTROLES DE FILTRO ── */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 20,
-          background: "rgba(15, 23, 42, 0.95)",
-          backdropFilter: "blur(12px)",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          padding: "12px 24px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
-          {/* Logo & Título */}
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div
-              style={{
-                background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
-                width: "36px",
-                height: "36px",
-                borderRadius: "10px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "18px",
-              }}
-            >
-              🚀
-            </div>
-            <div>
-              <h1 style={{ fontSize: "16px", fontWeight: 800, margin: 0, color: "#f8fafc" }}>
-                Dev Trends & Study Hub
-              </h1>
-              <p style={{ fontSize: "11px", color: "#94a3b8", margin: 0 }}>
-                HN · Reddit · Dev.to · Lobsters — clique em um tópico para ver resumo e fonte
-              </p>
+    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}>
+      <header className="app-header">
+        <div className="header-row">
+          <div className="brand">
+            <svg className="brand-mark" viewBox="0 0 30 30" fill="none">
+              <path d="M15 2L27 15L15 28L3 15L15 2Z" stroke="#ECEDEE" strokeWidth="1.4" />
+              <path d="M15 9L20.5 15L15 21L9.5 15L15 9Z" fill="#ECEDEE" />
+            </svg>
+            <div className="brand-text">
+              <h1>Dev Trends & Study Hub</h1>
+              <p>HN · REDDIT · DEV.TO · LOBSTERS · STACK OVERFLOW</p>
             </div>
           </div>
 
-          {/* Busca & Controles principais */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* Input de Busca */}
-            <div style={{ position: "relative" }}>
+          <div className="header-controls">
+            <div className="search">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#55585E" strokeWidth="2">
+                <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.35-4.35" />
+              </svg>
               <input
                 type="text"
-                placeholder="🔍 Buscar tecnologia..."
+                placeholder="buscar_tecnologia"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  background: "rgba(30, 41, 59, 0.8)",
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: "8px",
-                  padding: "6px 12px",
-                  color: "#f8fafc",
-                  fontSize: "12px",
-                  width: "200px",
-                  outline: "none",
-                }}
               />
               {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  style={{
-                    position: "absolute",
-                    right: "8px",
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    background: "none",
-                    border: "none",
-                    color: "#94a3b8",
-                    cursor: "pointer",
-                  }}
-                >
-                  ×
-                </button>
+                <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>
               )}
             </div>
 
-            {/* Alternador de Mostrar Teia / Linhas Conectadas */}
-            <button
-              onClick={() => setShowAllEdges(!showAllEdges)}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: "1px solid",
-                borderColor: showAllEdges ? "#7c3aed" : "rgba(255,255,255,0.12)",
-                background: showAllEdges ? "rgba(124,58,237,0.25)" : "rgba(30, 41, 59, 0.6)",
-                color: showAllEdges ? "#c4b5fd" : "#94a3b8",
-                fontSize: "11px",
-                fontWeight: 600,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
-            >
-              {showAllEdges ? "🌐 Exibindo Conexões" : "✨ Linhas ao passar mouse"}
-            </button>
-
-            {/* Alternador de Modo de Visualização */}
-            <div style={{ display: "flex", background: "rgba(30,41,59,0.8)", borderRadius: "8px", padding: "2px", border: "1px solid rgba(255,255,255,0.1)" }}>
-              <button
-                onClick={() => setViewMode("columns")}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: viewMode === "columns" ? "#7c3aed" : "transparent",
-                  color: viewMode === "columns" ? "#fff" : "#94a3b8",
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
+            <div className="toggle-switch">
+              <span>Conectar ao passar o mouse</span>
+              <div
+                className={`switch-track ${showAllEdges ? "on" : ""}`}
+                onClick={() => setShowAllEdges((v) => !v)}
               >
-                📊 Colunas
-              </button>
-              <button
-                onClick={() => setViewMode("cards")}
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: viewMode === "cards" ? "#7c3aed" : "transparent",
-                  color: viewMode === "cards" ? "#fff" : "#94a3b8",
-                  fontSize: "11px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                📋 Grid
-              </button>
+                <div className="switch-thumb" />
+              </div>
             </div>
 
-            {/* Filtro Temporal */}
-            <div style={{ display: "flex", gap: "4px" }}>
+            <div className="segmented">
+              <button className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>Colunas</button>
+              <button className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>Grid</button>
+            </div>
+
+            <div className="segmented">
               {[3, 7, 14, 30].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDays(d)}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: "6px",
-                    border: "1px solid",
-                    borderColor: days === d ? "#7c3aed" : "rgba(255,255,255,0.1)",
-                    background: days === d ? "rgba(124,58,237,0.3)" : "transparent",
-                    color: days === d ? "#c4b5fd" : "#64748b",
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {d}d
-                </button>
+                <button key={d} className={days === d ? "active" : ""} onClick={() => setDays(d)}>{d}D</button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* ── FILTROS DE CATEGORIA EM TAGS ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflowX: "auto" }}>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>Filtrar Área:</span>
-          {["ALL", ...COLUMN_ORDER].map((cat) => {
-            const isSelected = selectedCategory === cat;
-            const catColors = CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.default;
-            return (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: "16px",
-                  border: `1px solid ${isSelected ? catColors.border : "rgba(255,255,255,0.1)"}`,
-                  background: isSelected ? catColors.bg : "rgba(30, 41, 59, 0.4)",
-                  color: isSelected ? catColors.text : "#94a3b8",
-                  fontSize: "11px",
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {cat === "ALL" ? "✨ Todas as Áreas" : cat}
-              </button>
-            );
-          })}
+        <div className="stripe" />
+      </header>
 
-          {/* Filtro de Hype Mínimo */}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px" }}>
-            <span style={{ fontSize: "11px", color: "#64748b" }}>Relevância:</span>
-            {[1.0, 1.5, 2.0].map((h) => (
-              <button
-                key={h}
-                onClick={() => setMinHype(h)}
-                style={{
-                  padding: "2px 6px",
-                  borderRadius: "4px",
-                  border: "1px solid",
-                  borderColor: minHype === h ? "#f59e0b" : "rgba(255,255,255,0.1)",
-                  background: minHype === h ? "rgba(245,158,11,0.2)" : "transparent",
-                  color: minHype === h ? "#fde68a" : "#64748b",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                ≥ {h} 🔥
-              </button>
-            ))}
-          </div>
+      <div className="filter-row">
+        <div className="filter-group">
+          <span className="filter-label">Área</span>
+          {["ALL", ...COLUMN_ORDER].map((cat) => (
+            <button
+              key={cat}
+              className={`pill ${selectedCategory === cat ? "active" : ""}`}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat === "ALL" ? "Todas" : cat}
+            </button>
+          ))}
+        </div>
+
+        <div className="filter-group relevance-group">
+          <span className="filter-label">Relevância</span>
+          {[1.0, 1.5, 2.0].map((h) => (
+            <button
+              key={h}
+              className={`pill ${minHype === h ? "active" : ""}`}
+              onClick={() => setMinHype(h)}
+            >
+              ≥ {h}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── CONTEÚDO PRINCIPAL ── */}
-      <div style={{ paddingTop: "96px", width: "100%", height: "100%" }}>
+      <div className="board-area">
         {loading && (
-          <div style={{ display: "flex", height: "80vh", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "12px" }}>
-            <div style={{ width: "40px", height: "40px", border: "3px solid #7c3aed", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-            <p style={{ color: "#94a3b8", fontSize: "13px" }}>Organizando materiais de estudo...</p>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          <div className="state-screen">
+            <div className="spinner" />
+            <p>Organizando materiais de estudo...</p>
           </div>
         )}
 
         {error && !loading && (
-          <div style={{ display: "flex", height: "80vh", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "12px" }}>
-            <div style={{ fontSize: "40px" }}>⚠️</div>
-            <p style={{ color: "#ef4444", fontSize: "15px" }}>{error}</p>
-            <button onClick={() => fetchGraphData(days)} style={{ padding: "8px 16px", borderRadius: "8px", background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer" }}>Tentar novamente</button>
+          <div className="state-screen">
+            <p className="state-error">{error}</p>
+            <button className="pill" onClick={() => fetchGraphData(days)}>Tentar novamente</button>
           </div>
         )}
 
-        {/* MODO 1: COLUNAS LIMPAS SEM SOBREPOSIÇÃO */}
         {!loading && !error && viewMode === "columns" && (
           <ReactFlow
             nodes={nodes}
@@ -691,66 +486,33 @@ export default function GraphView() {
             proOptions={{ hideAttribution: true }}
           >
             <Background variant={BackgroundVariant.Dots} gap={36} size={1} color="rgba(255,255,255,0.04)" />
-            <Controls style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(255,255,255,0.1)" }} />
-            <MiniMap
-              style={{ background: "rgba(15, 23, 42, 0.9)", borderColor: "rgba(255,255,255,0.1)" }}
-              nodeColor={(node) => (CATEGORY_COLORS[(node.data as ApiNode)?.category] ?? CATEGORY_COLORS.default).border}
-              maskColor="rgba(2, 6, 23, 0.85)"
-            />
+            <Controls />
+            <MiniMap nodeColor="#42454B" maskColor="rgba(11, 12, 14, 0.85)" />
           </ReactFlow>
         )}
 
-        {/* MODO 2: GRID DE CARDS (LIMPO E DIRETO) */}
         {!loading && !error && viewMode === "cards" && (
-          <div style={{ padding: "24px 32px", height: "calc(100vh - 110px)", overflowY: "auto" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "16px" }}>
-              {filteredApiNodes.map((node) => {
-                const colors = CATEGORY_COLORS[node.category] ?? CATEGORY_COLORS.default;
-                return (
-                  <div
-                    key={node.id}
-                    onClick={() => setSelectedNode(node)}
-                    style={{
-                      background: "rgba(15, 23, 42, 0.75)",
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: "14px",
-                      padding: "16px",
-                      boxShadow: `0 4px 14px rgba(0,0,0,0.4)`,
-                      cursor: "pointer",
-                      transition: "all 0.2s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = "translateY(-2px)";
-                      e.currentTarget.style.boxShadow = `0 0 20px ${colors.glow}`;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = "translateY(0)";
-                      e.currentTarget.style.boxShadow = `0 4px 14px rgba(0,0,0,0.4)`;
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                      <span style={{ fontSize: "10px", fontWeight: 700, color: colors.border, background: colors.badgeBg, padding: "2px 8px", borderRadius: "6px" }}>
-                        {node.category}
-                      </span>
-                      <span style={{ fontSize: "11px", fontWeight: 700, color: "#f59e0b" }}>
-                        🔥 {node.hypeScore.toFixed(1)}
-                      </span>
-                    </div>
-                    <h3 style={{ fontSize: "16px", fontWeight: 700, color: colors.text, margin: "0 0 8px 0" }}>
-                      {node.label}
-                    </h3>
-                    <div style={{ fontSize: "11px", color: "#94a3b8", display: "flex", justifyContent: "space-between", marginTop: "12px" }}>
-                      <span>{node.mentionCount} discussões</span>
-                      <span style={{ color: colors.border, fontWeight: 600 }}>Estudar →</span>
+          <div className="cards-grid">
+            <div className="grid">
+              {filteredApiNodes.map((node) => (
+                <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
+                  <div className="card-top">
+                    <span className="tag">{node.category}</span>
+                    <div className="meter">
+                      <Bars val={node.hypeScore} />
+                      <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
                     </div>
                   </div>
-                );
-              })}
+                  <div className="card-title">{node.label}</div>
+                  <div className="card-bottom">
+                    <span className="card-meta">{node.mentionCount}+ discussões</span>
+                    <span className="card-link">Estudar →</span>
+                  </div>
+                </div>
+              ))}
             </div>
             {filteredApiNodes.length === 0 && (
-              <div style={{ textAlign: "center", color: "#64748b", marginTop: "60px" }}>
-                Nenhuma tecnologia encontrada para os filtros selecionados.
-              </div>
+              <div className="empty-state">Nenhuma tecnologia encontrada para os filtros selecionados.</div>
             )}
           </div>
         )}
@@ -758,188 +520,81 @@ export default function GraphView() {
 
       {/* ── MODAL DE DETALHES DO TÓPICO ── */}
       {selectedNode && (() => {
-        const colors = CATEGORY_COLORS[selectedNode.category] ?? CATEGORY_COLORS.default;
         const platform = detectPlatform(selectedNode.sourceUrl, selectedNode.sourcePlatform);
-        const sourceInfo = SOURCE_PLATFORMS[platform] ?? SOURCE_PLATFORMS.web;
+        const platformLabel = SOURCE_LABELS[platform] ?? platform;
 
         return (
           <>
-            {/* Backdrop */}
-            <div
-              onClick={() => setSelectedNode(null)}
-              style={{
-                position: "fixed",
-                inset: 0,
-                background: "rgba(2, 6, 23, 0.75)",
-                backdropFilter: "blur(4px)",
-                zIndex: 40,
-              }}
-            />
+            <div className="modal-backdrop" onClick={() => setSelectedNode(null)} />
 
-            {/* Painel */}
-            <div
-              style={{
-                position: "fixed",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                width: "min(480px, 92vw)",
-                maxHeight: "85vh",
-                overflowY: "auto",
-                background: "rgba(15, 23, 42, 0.98)",
-                backdropFilter: "blur(20px)",
-                border: `2px solid ${colors.border}`,
-                borderRadius: "20px",
-                padding: "24px",
-                zIndex: 50,
-                boxShadow: `0 24px 60px rgba(0,0,0,0.9), 0 0 40px ${colors.glow}`,
-              }}
-            >
-              {/* Cabeçalho */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+            <div className="modal-panel">
+              <div className="modal-header">
                 <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "6px" }}>
-                    <span style={{ fontSize: "10px", color: colors.border, fontWeight: 700, textTransform: "uppercase", background: colors.badgeBg, padding: "3px 8px", borderRadius: "6px" }}>
-                      {selectedNode.category}
-                    </span>
-                    <span style={{ fontSize: "10px", color: sourceInfo.color, fontWeight: 700, background: sourceInfo.bg, padding: "3px 8px", borderRadius: "6px" }}>
-                      {sourceInfo.icon} {sourceInfo.label}
-                    </span>
+                  <div className="modal-tags">
+                    <span className="tag">{selectedNode.category}</span>
+                    <span className="tag">{platformLabel}</span>
                   </div>
-                  <h2 style={{ fontSize: "22px", fontWeight: 800, color: "#f8fafc", margin: 0, lineHeight: 1.2 }}>
-                    {selectedNode.label}
-                  </h2>
+                  <h2 className="modal-title">{selectedNode.label}</h2>
                 </div>
-                <button
-                  onClick={() => setSelectedNode(null)}
-                  style={{ background: "rgba(100,116,139,0.2)", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: "18px", width: "32px", height: "32px", borderRadius: "8px", flexShrink: 0 }}
-                >×</button>
+                <button className="modal-close" onClick={() => setSelectedNode(null)}>×</button>
               </div>
 
               <div style={{ marginTop: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
-                {/* Resumo */}
-                <div
-                  style={{
-                    background: "rgba(30, 41, 59, 0.7)",
-                    borderLeft: `3px solid ${colors.border}`,
-                    padding: "14px 16px",
-                    borderRadius: "10px",
-                  }}
-                >
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#94a3b8", marginBottom: "6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Resumo
-                  </div>
+                <div className="modal-section">
+                  <div className="modal-section-label">Resumo</div>
                   {summaryLoading ? (
-                    <div style={{ fontSize: "13px", color: "#94a3b8", display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span>Carregando resumo técnico...</span>
-                    </div>
+                    <p className="modal-body-text" style={{ color: "var(--text-secondary)" }}>Carregando resumo técnico...</p>
                   ) : selectedNode.summary && selectedNode.summary.trim().length > 0 ? (
-                    <p style={{ fontSize: "14px", color: "#e2e8f0", lineHeight: 1.6, margin: 0 }}>
-                      {selectedNode.summary}
-                    </p>
+                    <p className="modal-body-text">{selectedNode.summary}</p>
                   ) : (
-                    <p style={{ fontSize: "13px", color: "#94a3b8", margin: 0, fontStyle: "italic" }}>
+                    <p className="modal-body-text" style={{ color: "var(--text-tertiary)", fontStyle: "italic" }}>
                       Não foi possível carregar o resumo agora.
                     </p>
                   )}
                 </div>
 
-                {/* Fonte original */}
                 {(selectedNode.sourceTitle || selectedNode.sourceUrl) && (
-                  <div
-                    style={{
-                      background: sourceInfo.bg,
-                      border: `1px solid ${sourceInfo.color}40`,
-                      padding: "14px 16px",
-                      borderRadius: "10px",
-                    }}
-                  >
-                    <div style={{ fontSize: "10px", fontWeight: 700, color: sourceInfo.color, marginBottom: "6px", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                      {sourceInfo.icon} Fonte — {sourceInfo.label}
-                    </div>
+                  <div className="modal-section">
+                    <div className="modal-section-label">Fonte — {platformLabel}</div>
                     {selectedNode.sourceTitle && (
-                      <p style={{ fontSize: "13px", color: "#f1f5f9", fontWeight: 600, margin: "0 0 8px 0", lineHeight: 1.4 }}>
+                      <p className="modal-body-text" style={{ fontWeight: 600, marginBottom: "8px" }}>
                         {selectedNode.sourceTitle}
                       </p>
                     )}
                     {selectedNode.sourceUrl && (
-                      <a
-                        href={selectedNode.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          fontSize: "12px",
-                          color: sourceInfo.color,
-                          fontWeight: 600,
-                          textDecoration: "none",
-                        }}
-                      >
+                      <a href={selectedNode.sourceUrl} target="_blank" rel="noreferrer" className="card-link" style={{ fontSize: "12px" }}>
                         Abrir discussão original ↗
                       </a>
                     )}
                   </div>
                 )}
 
-                {/* Métricas */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  <div style={{ background: "rgba(30,41,59,0.5)", padding: "10px 14px", borderRadius: "10px", textAlign: "center" }}>
-                    <div style={{ fontSize: "18px", fontWeight: 800, color: "#f59e0b" }}>{selectedNode.hypeScore.toFixed(1)} 🔥</div>
-                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Relevância</div>
+                <div className="modal-metrics">
+                  <div className="modal-metric">
+                    <div className="modal-metric-val">
+                      <div className="meter"><Bars val={selectedNode.hypeScore} /><span>{selectedNode.hypeScore.toFixed(1)}</span></div>
+                    </div>
+                    <div className="modal-metric-label">Relevância</div>
                   </div>
-                  <div style={{ background: "rgba(30,41,59,0.5)", padding: "10px 14px", borderRadius: "10px", textAlign: "center" }}>
-                    <div style={{ fontSize: "18px", fontWeight: 800, color: "#f8fafc" }}>{selectedNode.mentionCount}</div>
-                    <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Discussões</div>
+                  <div className="modal-metric">
+                    <div className="modal-metric-val">{selectedNode.mentionCount}</div>
+                    <div className="modal-metric-label">Discussões</div>
                   </div>
                 </div>
 
-                {/* Ações */}
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div className="modal-actions">
                   {selectedNode.sourceUrl && (
-                    <a
-                      href={selectedNode.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "8px",
-                        padding: "12px",
-                        borderRadius: "10px",
-                        background: sourceInfo.bg,
-                        border: `1px solid ${sourceInfo.color}60`,
-                        color: sourceInfo.color,
-                        fontSize: "13px",
-                        fontWeight: 700,
-                        textDecoration: "none",
-                      }}
-                    >
-                      {sourceInfo.icon} Ler no {sourceInfo.label} ↗
+                    <a href={selectedNode.sourceUrl} target="_blank" rel="noreferrer" className="btn btn-secondary">
+                      Ler no {platformLabel} ↗
                     </a>
                   )}
-
                   <a
                     href={`https://google.com/search?q=${encodeURIComponent(selectedNode.label + " documentation tutorial github")}`}
                     target="_blank"
                     rel="noreferrer"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "8px",
-                      padding: "12px",
-                      borderRadius: "10px",
-                      background: "#7c3aed",
-                      color: "#fff",
-                      fontSize: "13px",
-                      fontWeight: 700,
-                      textDecoration: "none",
-                    }}
+                    className="btn btn-primary"
                   >
-                    📖 Documentação & Tutoriais ↗
+                    Documentação & Tutoriais ↗
                   </a>
                 </div>
               </div>

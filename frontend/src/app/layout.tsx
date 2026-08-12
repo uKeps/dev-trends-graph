@@ -1,22 +1,37 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Space_Grotesk, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  variable: "--font-inter",
+  weight: ["500", "600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-body",
+  display: "swap",
+});
+
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Dev Trends Graph — Mapeador de Tendências da Bolha Dev & IA",
+  title: "Rasante — Dev Trends & Study Hub",
   description:
-    "Visualização interativa em grafos das principais tendências e tecnologias emergentes no ecossistema de desenvolvimento e IA, extraídas de Hacker News, Reddit, Dev.to e Lobsters via LLM.",
+    "Radar de sinal técnico: varredura de Hacker News, Reddit, Dev.to, Lobsters e Stack Overflow em busca de tendências emergentes no ecossistema dev & IA.",
   keywords: ["IA", "tendências tecnológicas", "grafo", "Hacker News", "Reddit", "Dev.to", "desenvolvimento", "LLM"],
-  authors: [{ name: "Dev Trends Graph" }],
+  authors: [{ name: "Rasante" }],
   openGraph: {
-    title: "Dev Trends Graph",
-    description: "Mapeador de Tendências da Bolha Dev & IA em Grafos Interativos",
+    title: "Rasante",
+    description: "Radar de sinal técnico da bolha dev & IA",
     type: "website",
   },
 };
@@ -27,14 +42,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={inter.variable}>
+    <html
+      lang="pt-BR"
+      className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} ${ibmPlexMono.variable}`}
+    >
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body style={{ margin: 0, padding: 0, background: "#020617", overflow: "hidden" }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

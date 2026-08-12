@@ -14,6 +14,7 @@ frontend/out/
 frontend/.vercel/
 frontend/dist/
 frontend/build/
+frontend/tsconfig.tsbuildinfo
 
 # Variáveis de ambiente sensíveis (NUNCA comitar)
 .env

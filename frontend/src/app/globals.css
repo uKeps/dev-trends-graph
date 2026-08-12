@@ -1,68 +1,643 @@
+:root {
+  --bg: #0b0c0e;
+  --surface: #161719;
+  --surface-2: #1b1d20;
+  --border: #2a2c30;
+  --border-strong: #42454b;
+  --text-primary: #ecedee;
+  --text-secondary: #8c9096;
+  --text-tertiary: #55585e;
+  --accent-blue: #3d6bff;
+  --accent-violet: #7b3ff2;
+  --accent-red: #ff3b47;
+  --radius: 3px;
+
+  --font-display: var(--font-display), "Space Grotesk", sans-serif;
+  --font-body: var(--font-body), "IBM Plex Sans", sans-serif;
+  --font-mono: var(--font-mono), "IBM Plex Mono", monospace;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 html, body {
-  margin: 0;
-  padding: 0;
   height: 100%;
   width: 100%;
-  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
-  background: #020617;
-  color: #f1f5f9;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Scrollbar estilizada para painéis */
+button, input {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
 ::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.03);
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(124, 58, 237, 0.5);
+  background: var(--border-strong);
   border-radius: 2px;
 }
 
-/* React Flow overrides — dark mode */
+/* ---------- HEADER ---------- */
+.app-header {
+  padding: 20px 28px 0;
+  flex-shrink: 0;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+
+.brand-text h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+.brand-text p {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  margin-top: 3px;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  min-width: 220px;
+}
+.search input {
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 100%;
+}
+.search input::placeholder {
+  color: var(--text-tertiary);
+}
+.search svg {
+  flex-shrink: 0;
+}
+.search-clear {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+.search-clear:hover {
+  color: var(--text-primary);
+}
+
+.toggle-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toggle-switch span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.switch-track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  position: relative;
+  cursor: pointer;
+}
+.switch-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all 0.15s ease;
+}
+.switch-track.on {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+}
+.switch-track.on .switch-thumb {
+  background: var(--bg);
+  left: 16px;
+}
+
+/* ---------- REGRA ÚNICA DE ESTADO ATIVO (segmented / pill) ---------- */
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.segmented button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-left: 1px solid var(--border);
+  transition: all 0.12s ease;
+}
+.segmented button:first-child {
+  border-left: none;
+}
+.segmented button:hover {
+  color: var(--text-primary);
+}
+.segmented button.active {
+  background: var(--text-primary);
+  color: var(--bg);
+}
+
+.pill {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 6px 11px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.pill:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.pill.active {
+  background: var(--text-primary);
+  color: var(--bg);
+  border-color: var(--text-primary);
+}
+
+/* ---------- STRIPE (única aparição das 3 cores) ---------- */
+.stripe {
+  height: 3px;
+  width: 100%;
+  margin-top: 18px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-blue) 0%, var(--accent-blue) 33.3%,
+    var(--accent-violet) 33.3%, var(--accent-violet) 66.6%,
+    var(--accent-red) 66.6%, var(--accent-red) 100%
+  );
+  opacity: 0.85;
+}
+
+/* ---------- FILTER ROW ---------- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 28px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.filter-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-right: 4px;
+}
+
+/* ---------- CARD (anatomia única — nó do grafo e card de grid) ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  font-family: var(--font-body);
+}
+.card:hover,
+.card.is-hovered {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.card.is-dimmed {
+  opacity: 0.25;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-tertiary);
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+.bars i {
+  width: 3px;
+  display: block;
+  background: var(--border-strong);
+  border-radius: 1px;
+  font-style: normal;
+}
+.bars i:nth-child(1) { height: 4px; }
+.bars i:nth-child(2) { height: 6px; }
+.bars i:nth-child(3) { height: 8px; }
+.bars i:nth-child(4) { height: 10px; }
+.bars i:nth-child(5) { height: 12px; }
+.bars i.on {
+  background: var(--text-secondary);
+}
+.meter-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-title {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14.5px;
+  word-break: break-word;
+}
+
+.card-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.card-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+.card-link {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.12s ease;
+  white-space: nowrap;
+}
+.card:hover .card-link {
+  color: var(--text-primary);
+}
+
+/* Nó do React Flow reaproveita .card com largura fixa */
+.graph-card {
+  width: 240px;
+  cursor: pointer;
+}
+.graph-handle {
+  background: var(--border-strong) !important;
+  border: none !important;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+/* ---------- BOARD ---------- */
+.board-area {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.cards-grid {
+  padding: 24px 28px 80px;
+  height: 100%;
+  overflow-y: auto;
+}
+.cards-grid .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.empty-state {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-top: 60px;
+}
+
+/* ---------- ESTADOS DE TELA (loading / erro) ---------- */
+.state-screen {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+}
+.state-screen p {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.state-error {
+  color: var(--text-primary) !important;
+  font-family: var(--font-body) !important;
+  font-size: 14px !important;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border-strong);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- MODAL ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 12, 14, 0.75);
+  z-index: 40;
+}
+.modal-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 24px;
+  z-index: 50;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.modal-tags {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.modal-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.2;
+}
+.modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
+.modal-close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.modal-section {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.modal-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.modal-body-text {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+.modal-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.modal-metric {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  text-align: center;
+}
+.modal-metric-val {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.modal-metric-val .bars,
+.modal-metric-val .meter {
+  justify-content: center;
+}
+.modal-metric-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--text-primary);
+  color: var(--bg);
+  border: 1px solid var(--text-primary);
+}
+.btn-primary:hover {
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+.btn-secondary {
+  background: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ---------- REACT FLOW — overrides mono-cromáticos ---------- */
 .react-flow__edge-path {
-  filter: drop-shadow(0 0 3px currentColor);
+  stroke: var(--border-strong);
 }
-
-.react-flow__controls button {
-  background: rgba(10, 10, 20, 0.9) !important;
-  border-color: rgba(255, 255, 255, 0.08) !important;
-  color: #9ca3af !important;
-  transition: all 0.2s ease;
+.react-flow__edge-text {
+  font-family: var(--font-mono);
 }
-
-.react-flow__controls button:hover {
-  background: rgba(124, 58, 237, 0.2) !important;
-  color: #c4b5fd !important;
-}
-
-.react-flow__minimap-mask {
-  fill: rgba(2, 6, 23, 0.75) !important;
-}
-
-.react-flow__panel {
-  margin: 0 !important;
-}
-
-/* Animação de pulso para nós com alto hype score */
-@keyframes pulse-glow {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-/* Animação de aresta animada */
 .react-flow__edge.animated .react-flow__edge-path {
   stroke-dasharray: 5;
-  animation: dashdraw 0.5s linear infinite;
+  animation: dashdraw 0.6s linear infinite;
 }
-
 @keyframes dashdraw {
   from { stroke-dashoffset: 10; }
-  to   { stroke-dashoffset: 0;  }
+  to { stroke-dashoffset: 0; }
+}
+.react-flow__controls {
+  border-radius: var(--radius) !important;
+  overflow: hidden;
+  box-shadow: none !important;
+}
+.react-flow__controls button {
+  background: var(--surface) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  transition: all 0.12s ease;
+}
+.react-flow__controls button:hover {
+  background: var(--surface-2) !important;
+  color: var(--text-primary) !important;
+}
+.react-flow__controls button svg {
+  fill: currentColor;
+}
+.react-flow__minimap {
+  border-radius: var(--radius) !important;
+  overflow: hidden;
+}
+.react-flow__minimap-mask {
+  fill: rgba(11, 12, 14, 0.85) !important;
+}
+.react-flow__panel {
+  margin: 12px !important;
+}
+.react-flow__attribution {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-controls {
+    width: 100%;
+  }
+  .search {
+    flex: 1;
+    min-width: 0;
+  }
 }
