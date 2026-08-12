@@ -66,6 +66,15 @@ interface GraphData {
   };
 }
 
+interface ApiArticle {
+  title: string;
+  url: string;
+  platform: string;
+  createdAt?: string;
+  nodeLabel: string;
+  nodeCategory: string;
+}
+
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -86,6 +95,18 @@ function detectPlatform(url?: string, platform?: string): string {
   if (url.includes("lobste.rs")) return "lobsters";
   if (url.includes("stackoverflow.com")) return "stackoverflow";
   return "web";
+}
+
+function timeAgo(iso?: string): string {
+  if (!iso) return "";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "agora";
+  if (minutes < 60) return `${minutes}min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
 }
 
 // Medidor de relevância (bars) — substitui ícone decorativo por reforço visual discreto
@@ -150,6 +171,7 @@ export default function GraphView() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [rawApiNodes, setRawApiNodes] = useState<ApiNode[]>([]);
   const [rawApiEdges, setRawApiEdges] = useState<ApiEdge[]>([]);
+  const [newsArticles, setNewsArticles] = useState<ApiArticle[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -183,8 +205,12 @@ export default function GraphView() {
         return res.json();
       })
       .then((data) => {
-        if (data && data.summary && data.summary.trim().length > 0) {
-          const patch: Partial<ApiNode> = { summary: data.summary.trim() };
+        const hasSummary = Boolean(data?.summary && data.summary.trim().length > 0);
+        const hasSourceUrl = Boolean(data?.sourceUrl);
+
+        if (hasSummary || hasSourceUrl) {
+          const patch: Partial<ApiNode> = {};
+          if (hasSummary) patch.summary = data.summary.trim();
           if (data.sourceUrl) patch.sourceUrl = data.sourceUrl;
           if (data.sourceTitle) patch.sourceTitle = data.sourceTitle;
           if (data.sourcePlatform) patch.sourcePlatform = data.sourcePlatform;
@@ -193,7 +219,8 @@ export default function GraphView() {
           setRawApiNodes((prevNodes) =>
             prevNodes.map((n) => (n.id === selectedNode.id ? { ...n, ...patch } : n))
           );
-        } else {
+        }
+        if (!hasSummary) {
           setSummaryError(true);
         }
       })
@@ -209,7 +236,7 @@ export default function GraphView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [minHype, setMinHype] = useState<number>(1.0);
-  const [viewMode, setViewMode] = useState<"columns" | "cards">("columns");
+  const [viewMode, setViewMode] = useState<"columns" | "cards" | "news">("columns");
 
   // ── Layout em colunas por categoria ─────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
@@ -302,7 +329,10 @@ export default function GraphView() {
     setLoading(true);
     setError(null);
     try {
-      const graphRes = await fetch(`${API_BASE_URL}/api/v1/graph?days=${d}`);
+      const [graphRes, articlesRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/v1/graph?days=${d}`),
+        fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=100`),
+      ]);
       if (!graphRes.ok) throw new Error(`API retornou status ${graphRes.status}`);
 
       const graphData: GraphData = await graphRes.json();
@@ -311,6 +341,11 @@ export default function GraphView() {
 
       setNodes(layoutNodesByColumns(graphData.nodes || [], null));
       setEdges(buildEdges(graphData.edges || [], null, showAllEdges));
+
+      if (articlesRes.ok) {
+        const articlesData = await articlesRes.json();
+        setNewsArticles(articlesData.articles || []);
+      }
     } catch (err: any) {
       setError(err.message ?? "Erro ao carregar os dados de estudo.");
     } finally {
@@ -358,6 +393,21 @@ export default function GraphView() {
     Object.values(map).forEach((items) => items.sort((a, b) => b.hypeScore - a.hypeScore));
     return map;
   }, [filteredApiNodes]);
+
+  // ── Agrupamento de artigos por categoria (aba "Notícias", estilo hackertab) ──
+  const groupedArticlesByCategory = useMemo(() => {
+    const map: Record<string, ApiArticle[]> = {};
+    newsArticles.forEach((article) => {
+      const cat = article.nodeCategory || "Concept";
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(article);
+    });
+    Object.keys(map).forEach((cat) => {
+      map[cat].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+      map[cat] = map[cat].slice(0, 6);
+    });
+    return map;
+  }, [newsArticles]);
 
   useEffect(() => {
     const validIds = new Set(filteredApiNodes.map((n) => n.id));
@@ -426,6 +476,7 @@ export default function GraphView() {
             <div className="segmented">
               <button className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>Colunas</button>
               <button className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>Grid</button>
+              <button className={viewMode === "news" ? "active" : ""} onClick={() => setViewMode("news")}>Notícias</button>
             </div>
 
             <div className="segmented">
@@ -516,6 +567,48 @@ export default function GraphView() {
             })}
             {filteredApiNodes.length === 0 && (
               <div className="empty-state">Nenhuma tecnologia encontrada para os filtros selecionados.</div>
+            )}
+          </div>
+        )}
+
+        {!loading && !error && viewMode === "news" && (
+          <div className="kanban">
+            {COLUMN_ORDER.map((cat) => {
+              const items = groupedArticlesByCategory[cat] || [];
+              if (items.length === 0) return null;
+
+              return (
+                <div key={cat} className="kanban-column">
+                  <div className="kanban-column-header">
+                    {cat.toUpperCase()} · {items.length}
+                  </div>
+                  <div className="kanban-column-body">
+                    {items.map((article, idx) => {
+                      const platform = detectPlatform(article.url, article.platform);
+                      const platformLabel = SOURCE_LABELS[platform] ?? platform;
+                      return (
+                        <a
+                          key={`${article.url}-${idx}`}
+                          className="news-item"
+                          href={article.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <div className="news-item-top">
+                            <span className="tag">{platformLabel}</span>
+                            <span className="card-meta">{timeAgo(article.createdAt)}</span>
+                          </div>
+                          <div className="news-item-title">{article.title}</div>
+                          <span className="card-meta">{article.nodeLabel}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            {newsArticles.length === 0 && (
+              <div className="empty-state">Nenhuma notícia coletada ainda para o período selecionado.</div>
             )}
           </div>
         )}
