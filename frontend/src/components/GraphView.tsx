@@ -443,7 +443,7 @@ export default function GraphView() {
             </svg>
             <div className="brand-text">
               <h1>Reticle</h1>
-              <p>HN · DEV.TO · LOBSTERS · STACK OVERFLOW</p>
+              <p>the hype, mapped daily</p>
             </div>
           </div>
 
