@@ -1,0 +1,54 @@
+name: 🛰️ Ingest — Reticle
+
+# =============================================================
+# Aciona o pipeline de ingestão multi-fonte de tempos em tempos.
+# O backend não tem scheduler interno de propósito: no free tier do Render
+# o serviço hiberna sem tráfego, então um @Scheduled não rodaria de forma
+# confiável. Quem acorda o serviço e dispara a coleta é este workflow.
+# =============================================================
+on:
+  schedule:
+    # A cada 6 horas (UTC). Ajuste aqui pra mudar a cadência.
+    - cron: "0 */6 * * *"
+  # Permite disparar a coleta na mão pela aba Actions, sem curl.
+  workflow_dispatch:
+
+jobs:
+  trigger-ingestion:
+    name: 🛰️ Trigger ingestion pipeline
+    runs-on: ubuntu-latest
+
+    env:
+      API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+      API_KEY: ${{ secrets.INGESTION_API_KEY }}
+
+    steps:
+      # 1. Acorda o serviço: no free tier do Render o cold start leva ~1min,
+      #    e a ingestão em si já é longa demais pra somar isso no mesmo timeout.
+      - name: ⏰ Wake the backend
+        run: |
+          curl --silent --output /dev/null \
+            --max-time 120 \
+            --retry 5 --retry-delay 15 --retry-all-errors \
+            "$API_URL/health" || echo "Health check falhou; seguindo mesmo assim."
+
+      # 2. Dispara o pipeline. A coleta faz ~185 requests + 1 chamada ao LLM,
+      #    então o timeout é generoso de propósito.
+      - name: 🛰️ Run ingestion
+        run: |
+          HTTP_STATUS=$(curl --silent --output response.json \
+            --write-out "%{http_code}" \
+            --max-time 300 \
+            --request POST \
+            --header "X-API-Key: $API_KEY" \
+            "$API_URL/api/v1/ingest")
+
+          echo "Resposta (HTTP $HTTP_STATUS):"
+          cat response.json || true
+          echo
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "❌ Ingestão falhou (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          echo "✅ Ingestão concluída"
