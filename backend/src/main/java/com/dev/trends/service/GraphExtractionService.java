@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -41,18 +40,18 @@ public class GraphExtractionService {
 
     private static final String HN_TOP_STORIES_URL = "https://hacker-news.firebaseio.com/v0/topstories.json";
     private static final String HN_ITEM_URL = "https://hacker-news.firebaseio.com/v0/item/%d.json";
-    private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=4";
+    private static final String DEVTO_URL = "https://dev.to/api/articles?tag=%s&top=7&per_page=12";
     private static final String LOBSTERS_URL = "https://lobste.rs/hottest.json";
     private static final String USER_AGENT = "reticle/1.0 (tech trends aggregator)";
 
     private static final List<String> DEVTO_TAGS = List.of("ai", "javascript", "rust", "devops", "webdev");
 
     private static final String STACKOVERFLOW_URL =
-            "https://api.stackexchange.com/2.3/questions?order=desc&sort=activity&tagged=%s&site=stackoverflow&pagesize=4&filter=default";
+            "https://api.stackexchange.com/2.3/questions?order=desc&sort=activity&tagged=%s&site=stackoverflow&pagesize=12&filter=default";
     private static final List<String> STACKOVERFLOW_TAGS =
             List.of("python", "javascript", "typescript", "docker", "kubernetes");
 
-    private static final int MAX_HN_ARTICLES = 25;
+    private static final int MAX_HN_ARTICLES = 60;
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -309,7 +308,9 @@ public class GraphExtractionService {
             Map<String, Object> requestBody = Map.of(
                     "model", model,
                     "temperature", 0.1,
-                    "max_tokens", 4000,
+                    // Big enough for the whole node+edge JSON of a full batch: a truncated
+                    // response is invalid JSON and silently drops the run to keyword extraction.
+                    "max_tokens", 12000,
                     "reasoning_effort", "low",
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
@@ -351,9 +352,10 @@ public class GraphExtractionService {
             return extractByKeyword(articles);
         }
 
+        // Sem os links: a fonte de cada nó é resolvida localmente em parseLlmResponse, então
+        // mandar URLs (e pedi-las de volta) só queimaria tokens de entrada e saída à toa.
         String articlesBlock = articles.stream()
-                .map(a -> "- [" + a.platform().toUpperCase() + "] TÍTULO: " + a.title()
-                        + " | LINK: " + a.discussionUrl())
+                .map(a -> "- [" + a.platform().toUpperCase() + "] " + a.title())
                 .collect(Collectors.joining("\n"));
 
         log.debug("Artigos enviados ao LLM:\n{}", articlesBlock);
@@ -365,19 +367,12 @@ public class GraphExtractionService {
 
                 REGRAS OBRIGATÓRIAS:
                 1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
-                2. Associe cada nó ao "sourceUrl" e "sourceTitle" do artigo correspondente.
-                3. Inclua "sourcePlatform" com o valor exato da plataforma: hackernews, devto, lobsters ou stackoverflow.
+                2. Use o label exatamente como ele aparece escrito no título da matéria.
 
                 Responda APENAS com JSON válido no formato:
                 {
                   "nodes": [
-                    {
-                      "label": "LangGraph",
-                      "category": "Framework",
-                      "sourceUrl": "https://...",
-                      "sourceTitle": "Título do post original",
-                      "sourcePlatform": "reddit"
-                    }
+                    {"label": "LangGraph", "category": "Framework"}
                   ],
                   "edges": [
                     {"source": "LangGraph", "target": "LangChain", "relation": "PART_OF"}
@@ -471,46 +466,21 @@ public class GraphExtractionService {
         try {
             JsonNode graphJson = objectMapper.readTree(content);
 
-            // Mapa de URLs por plataforma para fallback
-            Map<String, Article> urlIndex = new LinkedHashMap<>();
-            for (Article a : articles) {
-                urlIndex.put(a.discussionUrl(), a);
-            }
-
             List<NodeRequest> nodes = StreamSupport.stream(
                             graphJson.path("nodes").spliterator(), false)
                     .map(n -> {
                         String label = n.path("label").asText("Unknown").trim();
                         String category = n.path("category").asText("Technology").trim();
-                        String summary = n.has("summary") && !n.path("summary").asText("").trim().isBlank() 
-                                ? n.path("summary").asText().trim() : null;
-                        String sourceUrl = n.path("sourceUrl").asText("").trim();
-                        String sourceTitle = n.path("sourceTitle").asText("").trim();
-                        String sourcePlatform = n.path("sourcePlatform").asText("").trim();
 
-                        // Não confia cegamente na URL que o LLM devolveu — só aceita se ela existir de fato
-                        // entre os artigos coletados (evita URL alucinada).
-                        if (!sourceUrl.isBlank() && !urlIndex.containsKey(sourceUrl)) {
-                            sourceUrl = "";
-                        }
+                        // A fonte vem do lote coletado, não do LLM: a URL que ele devolvia era
+                        // descartada quando não batia com um artigo real (alucinação), e o resto
+                        // dos campos já saía daqui. Sem fonte, o frontend busca uma sob demanda.
+                        Article match = findBestMatchingArticle(label, articles);
+                        String sourceUrl = match != null ? match.discussionUrl() : "";
+                        String sourceTitle = match != null ? match.title() : "Discussão na comunidade dev";
+                        String sourcePlatform = match != null ? match.platform() : "web";
 
-                        if (sourceUrl.isBlank()) {
-                            Article match = findBestMatchingArticle(label, articles);
-                            if (match != null) {
-                                sourceUrl = match.discussionUrl();
-                                sourceTitle = match.title();
-                                sourcePlatform = match.platform();
-                            }
-                        }
-
-                        if (sourcePlatform.isBlank()) {
-                            sourcePlatform = detectPlatformFromUrl(sourceUrl);
-                        }
-                        if (sourceTitle.isBlank()) {
-                            sourceTitle = "Discussão na comunidade dev";
-                        }
-
-                        return new NodeRequest(label, category, summary, sourceUrl, sourceTitle, sourcePlatform);
+                        return new NodeRequest(label, category, null, sourceUrl, sourceTitle, sourcePlatform);
                     })
                     .filter(n -> !n.label().isBlank())
                     .filter(n -> !isBlacklisted(n.label()))
@@ -606,15 +576,6 @@ public class GraphExtractionService {
         return null;
     }
 
-    private String detectPlatformFromUrl(String url) {
-        if (url == null || url.isBlank()) return "web";
-        if (url.contains("reddit.com")) return "reddit";
-        if (url.contains("news.ycombinator.com")) return "hackernews";
-        if (url.contains("dev.to")) return "devto";
-        if (url.contains("lobste.rs")) return "lobsters";
-        return "web";
-    }
-
     private boolean isBlacklisted(String label) {
         if (label == null || label.isBlank()) return true;
         String lower = label.toLowerCase().trim();
@@ -688,13 +649,13 @@ public class GraphExtractionService {
 
     /**
      * Linka ao tópico todos os artigos do lote atual cujo título o menciona (não só o primeiro),
-     * para alimentar o feed de notícias. Limita a 5 por tópico por rodada de ingestão.
+     * para alimentar o feed de notícias. Limita a 20 por tópico por rodada de ingestão.
      */
     private void persistNodeArticles(UUID nodeId, String label, List<Article> articles) {
         if (nodeId == null) return;
         articles.stream()
                 .filter(a -> containsWord(a.title(), label))
-                .limit(5)
+                .limit(20)
                 .forEach(a -> {
                     try {
                         nodeRepository.insertArticle(nodeId, a.title(), a.discussionUrl(), a.platform());

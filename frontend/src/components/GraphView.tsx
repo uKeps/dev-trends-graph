@@ -339,7 +339,7 @@ export default function GraphView() {
     try {
       const [graphRes, articlesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/graph?days=${d}&lang=${lang}`),
-        fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=100`),
+        fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=300`),
       ]);
       if (!graphRes.ok) throw new Error(`API error ${graphRes.status}`);
 
@@ -402,20 +402,39 @@ export default function GraphView() {
     return map;
   }, [filteredApiNodes]);
 
+  // ── Article filtering ("News" tab) ──────────────────────────────────────
+  // Articles inherit the category and relevance of the topic they belong to, so the
+  // header filters (area, relevance, search) drive the news feed exactly like the graph.
+  // A topic missing from the graph payload is outside the selected day range → drop it.
+  const filteredArticles = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const hypeByLabel = new Map(rawApiNodes.map((n) => [n.label, n.hypeScore]));
+
+    return newsArticles.filter((article) => {
+      const hype = hypeByLabel.get(article.nodeLabel);
+      if (hype === undefined || hype < minHype) return false;
+      if (selectedCategory !== "ALL" && article.nodeCategory !== selectedCategory) return false;
+      return (
+        query === "" ||
+        article.title.toLowerCase().includes(query) ||
+        article.nodeLabel.toLowerCase().includes(query)
+      );
+    });
+  }, [newsArticles, rawApiNodes, selectedCategory, minHype, searchQuery]);
+
   // ── Article grouping by category ("News" tab, hackertab style) ──────────
   const groupedArticlesByCategory = useMemo(() => {
     const map: Record<string, ApiArticle[]> = {};
-    newsArticles.forEach((article) => {
+    filteredArticles.forEach((article) => {
       const cat = article.nodeCategory || "Concept";
       if (!map[cat]) map[cat] = [];
       map[cat].push(article);
     });
-    Object.keys(map).forEach((cat) => {
-      map[cat].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
-      map[cat] = map[cat].slice(0, 6);
-    });
+    Object.values(map).forEach((items) =>
+      items.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+    );
     return map;
-  }, [newsArticles]);
+  }, [filteredArticles]);
 
   useEffect(() => {
     const validIds = new Set(filteredApiNodes.map((n) => n.id));
@@ -622,7 +641,7 @@ export default function GraphView() {
                 </div>
               );
             })}
-            {newsArticles.length === 0 && (
+            {filteredArticles.length === 0 && (
               <div className="empty-state">{t.emptyNews}</div>
             )}
           </div>
