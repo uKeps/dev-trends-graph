@@ -409,6 +409,10 @@ public class GraphExtractionService {
                 REGRAS OBRIGATÓRIAS:
                 1. NÃO INCLUA termos genéricos (Linux, Mac, Windows, Software, Hardware, Web, Computer, Article, PDF).
                 2. Use o label exatamente como ele aparece escrito no título da matéria.
+                3. A lista contém matérias NÃO TÉCNICAS (história, política, saúde, drogas,
+                   curiosidades, cultura pop) — o Hacker News publica isso na home. IGNORE essas
+                   matérias por completo. Só entram no grafo ferramentas, linguagens, frameworks,
+                   modelos e conceitos de engenharia de software e IA. Na dúvida, deixe de fora.
 
                 Responda APENAS com JSON válido no formato:
                 {

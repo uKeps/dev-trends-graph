@@ -315,7 +315,11 @@ public class GraphController {
         if (sourceUrl == null || sourceUrl.isBlank()) {
             var found = graphExtractionService.findLiveSource(node.getLabel());
             if (found != null) {
-                sourceUrl = found.url();
+                // discussionUrl, não url: a plataforma gravada é "hackernews" e o frontend
+                // confia nela para o selo da fonte. Gravar o link externo da matéria fazia o
+                // card dizer "Hacker News" apontando para o site original (ex.: um blog de
+                // fotos históricas), como se o tópico tivesse saído de lá.
+                sourceUrl = found.discussionUrl();
                 sourceTitle = found.title();
                 sourcePlatform = found.platform();
                 nodeRepository.updateSource(id, sourceUrl, sourceTitle, sourcePlatform);

@@ -1,6 +1,7 @@
 package com.dev.trends.controller;
 
 import com.dev.trends.model.ExtractionResult;
+import com.dev.trends.model.Node;
 import com.dev.trends.repository.EdgeRepository;
 import com.dev.trends.repository.NodeRepository;
 import com.dev.trends.service.GraphExtractionService;
@@ -11,7 +12,10 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -71,6 +75,26 @@ class GraphControllerTest {
 
         mockMvc.perform(get("/api/v1/graph").param("days", "999"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void summaryEndpoint_shouldReturnDiscussionUrlForLiveSource() throws Exception {
+        UUID id = UUID.randomUUID();
+        Node node = new Node(id, "Cocaine", "Concept", 1.0, null, null, 1);
+        when(nodeRepository.findById(id, "en")).thenReturn(Optional.of(node));
+        when(graphExtractionService.generateTopicSummary(any(), any(), any(), any(), any()))
+                .thenReturn("resumo");
+        when(graphExtractionService.findLiveSource("Cocaine")).thenReturn(
+                new GraphExtractionService.Article("42", "Cocaine paraphernalia ads",
+                        "https://rarehistoricalphotos.com/cocaine-paraphernalia-ads-1970s/",
+                        "https://news.ycombinator.com/item?id=42", "hackernews"));
+
+        // O selo diz "Hacker News"; o link tem que apontar para o Hacker News, não para o site
+        // original da matéria.
+        mockMvc.perform(get("/api/v1/nodes/" + id + "/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourcePlatform").value("hackernews"))
+                .andExpect(jsonPath("$.sourceUrl").value("https://news.ycombinator.com/item?id=42"));
     }
 
     @Test
