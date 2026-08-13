@@ -53,6 +53,15 @@ public class GraphExtractionService {
 
     private static final int MAX_HN_ARTICLES = 60;
 
+    /**
+     * Quantos artigos vão no prompt de extração. O tier free da Groq limita a 8000 tokens por
+     * minuto e conta input + max_tokens como reservados, então o request inteiro tem que caber
+     * nesse teto: ~20 tokens por artigo aqui dá ~2,7k de entrada, que com max_tokens deixa ~6,7k.
+     * Coletamos mais artigos do que isso de propósito — o feed de notícias usa a lista completa,
+     * só a curadoria do grafo é que enxerga a amostra.
+     */
+    private static final int MAX_PROMPT_ARTICLES = 120;
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final NodeRepository nodeRepository;
@@ -77,8 +86,6 @@ public class GraphExtractionService {
 
     @Value("${openai.model:openai/gpt-oss-20b}")
     private String llmModel;
-
-    private static final String FALLBACK_LLM_MODEL = "qwen/qwen3.6-27b";
 
     public GraphExtractionService(
             NodeRepository nodeRepository,
@@ -320,9 +327,10 @@ public class GraphExtractionService {
             Map<String, Object> requestBody = Map.of(
                     "model", model,
                     "temperature", 0.1,
-                    // Big enough for the whole node+edge JSON of a full batch: a truncated
-                    // response is invalid JSON and silently drops the run to keyword extraction.
-                    "max_tokens", 12000,
+                    // Teto de saída + entrada tem que caber nos 8000 tokens/minuto do tier free
+                    // da Groq, que reserva os dois contra o mesmo limite (413 rate_limit_exceeded
+                    // se estourar). Com ~2,7k de entrada, isto deixa o request em ~6,7k.
+                    "max_tokens", 4000,
                     "reasoning_effort", "low",
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
@@ -362,6 +370,22 @@ public class GraphExtractionService {
         }
     }
 
+    /**
+     * Amostra espaçada da lista coletada, para o prompt caber no limite de tokens por minuto
+     * sem perder a mistura de fontes — elas chegam concatenadas (HN, Dev.to, Lobsters, SO),
+     * então pegar os primeiros N deixaria as últimas fontes de fora da curadoria.
+     */
+    List<Article> sampleForPrompt(List<Article> articles) {
+        if (articles.size() <= MAX_PROMPT_ARTICLES) return articles;
+
+        List<Article> sample = new ArrayList<>(MAX_PROMPT_ARTICLES);
+        double step = (double) articles.size() / MAX_PROMPT_ARTICLES;
+        for (int i = 0; i < MAX_PROMPT_ARTICLES; i++) {
+            sample.add(articles.get((int) (i * step)));
+        }
+        return sample;
+    }
+
     private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
@@ -371,7 +395,7 @@ public class GraphExtractionService {
 
         // Sem os links: a fonte de cada nó é resolvida localmente em parseLlmResponse, então
         // mandar URLs (e pedi-las de volta) só queimaria tokens de entrada e saída à toa.
-        String articlesBlock = articles.stream()
+        String articlesBlock = sampleForPrompt(articles).stream()
                 .map(a -> "- [" + a.platform().toUpperCase() + "] " + a.title())
                 .collect(Collectors.joining("\n"));
 
@@ -402,15 +426,10 @@ public class GraphExtractionService {
         String content = requestLlmContent(llmModel, systemPrompt, userMessage);
 
         if (content == null || !content.trim().startsWith("{")) {
-            log.warn("Modelo {} não retornou JSON válido (resposta: '{}'). Tentando modelo de fallback {}.",
-                    llmModel, content, FALLBACK_LLM_MODEL);
-            content = requestLlmContent(FALLBACK_LLM_MODEL, systemPrompt, userMessage);
-        }
-
-        if (content == null || !content.trim().startsWith("{")) {
-            log.error("Nenhum modelo retornou JSON válido. Caindo para extração por palavras-chave. Última resposta: '{}'", content);
+            log.error("Modelo {} não retornou JSON válido. Caindo para extração por palavras-chave. Resposta: '{}'",
+                    llmModel, content);
             if (lastLlmError == null) {
-                lastLlmError = "resposta sem JSON de " + llmModel + " e " + FALLBACK_LLM_MODEL;
+                lastLlmError = "resposta sem JSON de " + llmModel;
             }
             return extractByKeyword(articles);
         }
