@@ -257,12 +257,22 @@ public class GraphController {
 
         try {
             var result = graphExtractionService.runIngestionPipeline();
-            return ResponseEntity.ok(Map.of(
-                    "status", "success",
-                    "nodesExtracted", result.nodes().size(),
-                    "edgesExtracted", result.edges().size(),
-                    "triggeredAt", Instant.now().toString()
-            ));
+
+            // Sem isto a rodada responde "success" mesmo quando o LLM falhou e a extração caiu
+            // na lista fixa de palavras-chave — foi assim que a curadoria ficou dias parada
+            // sem ninguém perceber.
+            String llmError = graphExtractionService.getLastLlmError();
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", llmError == null ? "success" : "degraded");
+            body.put("extraction", llmError == null ? "llm" : "keyword-fallback");
+            if (llmError != null) {
+                body.put("llmError", llmError);
+            }
+            body.put("nodesExtracted", result.nodes().size());
+            body.put("edgesExtracted", result.edges().size());
+            body.put("triggeredAt", Instant.now().toString());
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
                     .body(Map.of("status", "error", "message", e.getMessage()));

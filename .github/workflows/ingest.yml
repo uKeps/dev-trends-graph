@@ -51,4 +51,11 @@ jobs:
             echo "❌ Ingestão falhou (HTTP $HTTP_STATUS)"
             exit 1
           fi
+
+          # HTTP 200 não basta: se o LLM falhar, a extração cai na lista fixa de palavras-chave
+          # e a rodada "passa" entregando curadoria pobre. Falhar aqui é o que torna isso visível.
+          if grep -q 'keyword-fallback' response.json; then
+            echo "❌ Curadoria degradada — o LLM falhou (veja llmError acima)."
+            exit 1
+          fi
           echo "✅ Ingestão concluída"

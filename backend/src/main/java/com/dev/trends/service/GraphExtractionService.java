@@ -58,6 +58,17 @@ public class GraphExtractionService {
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
 
+    /**
+     * Motivo da última falha do LLM, ou null se a extração usou o LLM de verdade. Exposto no
+     * /api/v1/ingest porque a queda para extração por palavra-chave é silenciosa: o pipeline
+     * responde "success" de qualquer jeito, e foi assim que ela passou dias sem ser notada.
+     */
+    private volatile String lastLlmError;
+
+    public String getLastLlmError() {
+        return lastLlmError;
+    }
+
     @Value("${openai.api.key:${GROQ_API_KEY:}}")
     private String llmApiKey;
 
@@ -91,6 +102,7 @@ public class GraphExtractionService {
     @Transactional
     public ExtractionResult runIngestionPipeline() {
         log.info("Iniciando pipeline de ingestão multi-fonte...");
+        lastLlmError = null;
 
         List<Article> articles = fetchAllArticles();
         if (articles.isEmpty()) {
@@ -330,6 +342,9 @@ public class GraphExtractionService {
 
             if (llmResp.statusCode() != 200) {
                 log.error("LLM API ({}) status {}. Body: {}", model, llmResp.statusCode(), llmResp.body());
+                String body = llmResp.body();
+                lastLlmError = "HTTP " + llmResp.statusCode() + " em " + model + ": "
+                        + (body.length() > 400 ? body.substring(0, 400) : body);
                 return null;
             }
 
@@ -342,6 +357,7 @@ public class GraphExtractionService {
 
         } catch (Exception e) {
             log.error("Erro na chamada ao LLM ({}): {}", model, e.getMessage(), e);
+            lastLlmError = model + ": " + e;
             return null;
         }
     }
@@ -349,6 +365,7 @@ public class GraphExtractionService {
     private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
+            lastLlmError = "GROQ_API_KEY ausente na configuração do serviço";
             return extractByKeyword(articles);
         }
 
@@ -392,6 +409,9 @@ public class GraphExtractionService {
 
         if (content == null || !content.trim().startsWith("{")) {
             log.error("Nenhum modelo retornou JSON válido. Caindo para extração por palavras-chave. Última resposta: '{}'", content);
+            if (lastLlmError == null) {
+                lastLlmError = "resposta sem JSON de " + llmModel + " e " + FALLBACK_LLM_MODEL;
+            }
             return extractByKeyword(articles);
         }
 
