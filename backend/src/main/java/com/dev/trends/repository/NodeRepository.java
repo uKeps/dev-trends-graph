@@ -216,16 +216,20 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna os top N nós por hype_score.
+     * Retorna os top N nós por hype_score, considerando apenas os vistos nos
+     * últimos `days` dias. Sem este filtro, o "hot" era cumulativo:
+     * hype_score nunca decai, então o card mais quente era um nó que teve
+     * pico de menções há meses e nunca mais.
      */
-    public List<Node> findTopByHypeScore(int limit) {
+    public List<Node> findTopByHypeScore(int days, int limit) {
         String sql = """
                 SELECT id, label, category, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
+                WHERE last_seen >= NOW() - (? || ' days')::INTERVAL
                 ORDER BY hype_score DESC
                 LIMIT ?
                 """;
-        return jdbc.query(sql, NODE_ROW_MAPPER, limit);
+        return jdbc.query(sql, NODE_ROW_MAPPER, days, limit);
     }
 
     /**

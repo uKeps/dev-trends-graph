@@ -197,20 +197,27 @@ public class GraphController {
     // =========================================================
 
     /**
-     * GET /api/v1/trends
-     * Retorna os top 10 nós ordenados por hype_score decrescente.
-     * Usado para o painel de "tendências quentes" no frontend.
+     * GET /api/v1/trends?days=7&limit=10
+     * Retorna os top N nós (default 10) ordenados por hype_score decrescente,
+     * filtrados por atividade recente (default 7 dias). Sem o filtro de
+     * recência, a métrica era cumulativa e o "tendências quentes" nunca
+     * perdia o card que entrou em alta uma vez.
      */
     @GetMapping("/api/v1/trends")
     public ResponseEntity<Map<String, Object>> getTrends(
+            @RequestParam(defaultValue = "7") int days,
             @RequestParam(defaultValue = "10") int limit) {
 
+        if (days < 1 || days > 365) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
+        }
         if (limit < 1 || limit > 100) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "O parâmetro 'limit' deve estar entre 1 e 100."));
         }
 
-        List<Node> topNodes = nodeRepository.findTopByHypeScore(limit);
+        List<Node> topNodes = nodeRepository.findTopByHypeScore(days, limit);
 
         List<Map<String, Object>> trends = topNodes.stream()
                 .map(n -> {
@@ -221,6 +228,7 @@ public class GraphController {
                     trend.put("hypeScore", n.getHypeScore());
                     trend.put("mentionCount", n.getMentionCount());
                     trend.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
+                    trend.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
                     return trend;
                 })
                 .toList();
@@ -228,6 +236,7 @@ public class GraphController {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("trends", trends);
         response.put("meta", Map.of(
+                "days", days,
                 "limit", limit,
                 "count", trends.size(),
                 "generatedAt", Instant.now().toString()

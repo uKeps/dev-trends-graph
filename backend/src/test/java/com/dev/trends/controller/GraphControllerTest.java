@@ -99,11 +99,12 @@ class GraphControllerTest {
 
     @Test
     void trendsEndpoint_shouldReturnEmptyTrends() throws Exception {
-        when(nodeRepository.findTopByHypeScore(10)).thenReturn(List.of());
+        when(nodeRepository.findTopByHypeScore(7, 10)).thenReturn(List.of());
 
         mockMvc.perform(get("/api/v1/trends"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.trends").isArray())
+                .andExpect(jsonPath("$.meta.days").value(7))
                 .andExpect(jsonPath("$.meta.limit").value(10));
     }
 }
