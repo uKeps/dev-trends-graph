@@ -71,6 +71,7 @@ interface ApiArticle {
   title: string;
   url: string;
   platform: string;
+  publishedAt?: string;
   createdAt?: string;
   nodeLabel: string;
   nodeCategory: string;
@@ -431,7 +432,7 @@ export default function GraphView() {
       map[cat].push(article);
     });
     Object.values(map).forEach((items) =>
-      items.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))
+      items.sort((a, b) => (b.publishedAt ?? b.createdAt ?? "").localeCompare(a.publishedAt ?? a.createdAt ?? ""))
     );
     return map;
   }, [filteredArticles]);
@@ -630,7 +631,7 @@ export default function GraphView() {
                         >
                           <div className="news-item-top">
                             <span className="tag">{platformLabel}</span>
-                            <span className="card-meta">{timeAgo(article.createdAt, t.now)}</span>
+                            <span className="card-meta">{timeAgo(article.publishedAt ?? article.createdAt, t.now)}</span>
                           </div>
                           <div className="news-item-title">{article.title}</div>
                           <span className="card-meta">{article.nodeLabel}</span>

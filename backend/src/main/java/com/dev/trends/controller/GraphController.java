@@ -173,6 +173,7 @@ public class GraphController {
                     article.put("title", a.title());
                     article.put("url", a.url());
                     article.put("platform", a.platform());
+                    article.put("publishedAt", a.publishedAt() != null ? a.publishedAt().toString() : null);
                     article.put("createdAt", a.createdAt() != null ? a.createdAt().toString() : null);
                     article.put("nodeLabel", a.nodeLabel());
                     article.put("nodeCategory", a.nodeCategory());

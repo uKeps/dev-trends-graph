@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -232,6 +233,9 @@ public class NodeRepository {
         try {
             jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE CASCADE;");
             jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url ON posts (node_id, url);");
+            // published_at é a data real de publicação vinda da fonte (HN/Dev.to/Lobsters/SO).
+            // Sem ela, o feed mostrava artigos coletados "hoje" mas publicados há anos.
+            jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;");
         } catch (Exception e) {
             // Ignora se já existirem
         }
@@ -242,30 +246,45 @@ public class NodeRepository {
      * futuras de ingestão não duplica a linha, graças ao índice único (node_id, url).
      */
     public void insertArticle(UUID nodeId, String title, String url, String platform) {
+        insertArticle(nodeId, title, url, platform, null);
+    }
+
+    /**
+     * Sobrecarga que grava também a data de publicação original da fonte. Quando `publishedAt`
+     * é null, a coluna fica NULL e o feed usa created_at como fallback na query.
+     */
+    public void insertArticle(UUID nodeId, String title, String url, String platform, Instant publishedAt) {
         if (nodeId == null || url == null || url.isBlank()) return;
         ensureArticleColumnsExist();
-        String sql = "INSERT INTO posts (title, url, platform, node_id) VALUES (?, ?, ?, ?) " +
+        String sql = "INSERT INTO posts (title, url, platform, node_id, published_at) VALUES (?, ?, ?, ?, ?) " +
                 "ON CONFLICT (node_id, url) DO NOTHING";
-        jdbc.update(sql, title, url, platform, nodeId);
+        jdbc.update(sql, title, url, platform, nodeId, publishedAt != null ? OffsetDateTime.ofInstant(publishedAt, java.time.ZoneOffset.UTC) : null);
     }
 
     /**
      * Retorna os artigos mais recentes (últimos N dias), com o tópico associado, para o feed de notícias.
+     * Filtra pela data de publicação real (quando disponível), não pela data de ingestão — senão
+     * artigos antigos coletados hoje aparecem como "fresh".
      */
     public List<ArticlePreview> findRecentArticles(int days, int limit) {
         ensureArticleColumnsExist();
+        // Teto duro de 30 dias: mesmo para posts sem published_at (backfill antigo), garante que
+        // o feed não mostre nada além disso. Fica no UNION com o filtro de 'days' para o usuário
+        // poder restringir ainda mais (3D, 7D, etc.) sem ver conteúdo podre.
         String sql = """
-                SELECT p.title, p.url, p.platform, p.created_at, n.label AS node_label, n.category AS node_category
+                SELECT p.title, p.url, p.platform, p.published_at, p.created_at, n.label AS node_label, n.category AS node_category
                 FROM posts p
                 JOIN nodes n ON p.node_id = n.id
-                WHERE p.created_at >= NOW() - (? || ' days')::INTERVAL
-                ORDER BY p.created_at DESC
+                WHERE COALESCE(p.published_at, p.created_at) >= NOW() - (? || ' days')::INTERVAL
+                  AND COALESCE(p.published_at, p.created_at) >= NOW() - INTERVAL '30 days'
+                ORDER BY p.published_at DESC NULLS LAST
                 LIMIT ?
                 """;
         return jdbc.query(sql, (rs, rowNum) -> new ArticlePreview(
                 rs.getString("title"),
                 rs.getString("url"),
                 rs.getString("platform"),
+                rs.getObject("published_at", OffsetDateTime.class),
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getString("node_label"),
                 rs.getString("node_category")

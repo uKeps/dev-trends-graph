@@ -87,7 +87,7 @@ class GraphControllerTest {
         when(graphExtractionService.findLiveSource("Cocaine")).thenReturn(
                 new GraphExtractionService.Article("42", "Cocaine paraphernalia ads",
                         "https://rarehistoricalphotos.com/cocaine-paraphernalia-ads-1970s/",
-                        "https://news.ycombinator.com/item?id=42", "hackernews"));
+                        "https://news.ycombinator.com/item?id=42", "hackernews", null));
 
         // O selo diz "Hacker News"; o link tem que apontar para o Hacker News, não para o site
         // original da matéria.

@@ -22,6 +22,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -101,7 +102,15 @@ public class GraphExtractionService {
     }
 
     /** Artigo coletado de qualquer plataforma. */
-    public record Article(String id, String title, String url, String discussionUrl, String platform) {}
+    public record Article(String id, String title, String url, String discussionUrl, String platform, Instant publishedAt) {}
+
+    /**
+     * Teto de idade dos artigos no feed de notícias e no prompt do LLM. Itens mais antigos
+     * que isso são descartados na coleta — protege contra Lobsters "hottest" (all-time) e
+     * StackOverflow "activity" (perguntas antigas com comentário recente) trazendo conteúdo
+     * de anos atrás pra home, o que fere o propósito do site de mostrar o que está em alta.
+     */
+    private static final Duration MAX_ARTICLE_AGE = Duration.ofDays(30);
 
     /**
      * Pipeline principal: busca artigos de múltiplas fontes → extrai grafo via LLM → persiste.
@@ -164,6 +173,7 @@ public class GraphExtractionService {
                             httpClient.executor().orElse(Runnable::run)))
                     .map(CompletableFuture::join)
                     .filter(a -> a != null)
+                    .filter(a -> !isOlderThanCeiling(a.publishedAt()))
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
@@ -188,13 +198,28 @@ public class GraphExtractionService {
                     String url = item.has("url") ? item.get("url").asText()
                             : "https://news.ycombinator.com/item?id=" + itemId;
                     String discussion = "https://news.ycombinator.com/item?id=" + itemId;
-                    return new Article(String.valueOf(itemId), title, url, discussion, "hackernews");
+                    // Campo "time" da HN é epoch em segundos. Sem ele (item removido, etc.)
+                    // deixamos null e o filtro de idade na camada de cima ainda roda.
+                    Instant publishedAt = item.has("time") && item.get("time").isNumber()
+                            ? Instant.ofEpochSecond(item.get("time").asLong())
+                            : null;
+                    return new Article(String.valueOf(itemId), title, url, discussion, "hackernews", publishedAt);
                 }
             }
         } catch (Exception e) {
             log.debug("Erro ao buscar item HN {}: {}", itemId, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Verdadeiro se `publishedAt` é mais antigo que MAX_ARTICLE_AGE. Quando a data veio nula
+     * (campo ausente na fonte, parse quebrado, etc.) aceitamos o artigo — o teto rígido na
+     * query do feed (NodeRepository) ainda corta o pior do backfill.
+     */
+    private boolean isOlderThanCeiling(Instant publishedAt) {
+        if (publishedAt == null) return false;
+        return publishedAt.isBefore(Instant.now().minus(MAX_ARTICLE_AGE));
     }
 
     private List<Article> fetchDevToArticles() {
@@ -220,7 +245,11 @@ public class GraphExtractionService {
 
                     String url = item.path("url").asText("");
                     String id = String.valueOf(item.path("id").asLong());
-                    articles.add(new Article(id, title, url, url, "devto"));
+                    // Dev.to devolve ISO 8601 em "published_at"; às vezes pode estar ausente
+                    // para rascunhos antigos. Parse tolerante — falha vira null.
+                    Instant publishedAt = parseInstantOrNull(item.path("published_at").asText(""));
+                    if (isOlderThanCeiling(publishedAt)) continue;
+                    articles.add(new Article(id, title, url, url, "devto", publishedAt));
                 }
             } catch (Exception e) {
                 log.debug("Erro ao coletar Dev.to tag {}: {}", tag, e.getMessage());
@@ -253,7 +282,11 @@ public class GraphExtractionService {
                 String url = item.path("url").asText("");
                 String commentsUrl = item.path("comments_url").asText(url);
                 String id = item.path("short_id").asText("");
-                articles.add(new Article(id, title, url, commentsUrl, "lobsters"));
+                // /hottest.json é "all-time hottest", então sem este filtro a home fica
+                // cheia de itens de anos atrás que viralizaram uma vez e nunca mais.
+                Instant publishedAt = parseInstantOrNull(item.path("created_at").asText(""));
+                if (isOlderThanCeiling(publishedAt)) continue;
+                articles.add(new Article(id, title, url, commentsUrl, "lobsters", publishedAt));
             }
         } catch (Exception e) {
             log.debug("Erro ao coletar Lobsters: {}", e.getMessage());
@@ -286,7 +319,13 @@ public class GraphExtractionService {
 
                     String link = item.path("link").asText("");
                     String id = String.valueOf(item.path("question_id").asLong());
-                    articles.add(new Article(id, title, link, link, "stackoverflow"));
+                    // SO devolve epoch em segundos em "creation_date". Com sort=activity, sem
+                    // este filtro pegamos perguntas de anos atrás que só receberam um comentário.
+                    Instant publishedAt = item.has("creation_date") && item.get("creation_date").isNumber()
+                            ? Instant.ofEpochSecond(item.get("creation_date").asLong())
+                            : null;
+                    if (isOlderThanCeiling(publishedAt)) continue;
+                    articles.add(new Article(id, title, link, link, "stackoverflow", publishedAt));
                 }
             } catch (Exception e) {
                 log.debug("Erro ao coletar StackOverflow tag {}: {}", tag, e.getMessage());
@@ -294,6 +333,19 @@ public class GraphExtractionService {
         }
         log.info("StackOverflow: {} artigos coletados.", articles.size());
         return articles;
+    }
+
+    /**
+     * Tenta parsear uma string ISO 8601 (ou vazia) em Instant. Retorna null em qualquer falha —
+     * usada para campos de data opcionais nas respostas das fontes.
+     */
+    private static Instant parseInstantOrNull(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            return Instant.parse(text);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
@@ -495,8 +547,10 @@ public class GraphExtractionService {
                 String objectId = hit.path("objectID").asText("");
                 String discussion = "https://news.ycombinator.com/item?id=" + objectId;
                 String articleUrl = hit.path("url").asText(discussion);
+                // Algolia devolve "created_at" como ISO 8601.
+                Instant publishedAt = parseInstantOrNull(hit.path("created_at").asText(""));
 
-                return new Article(objectId, title, articleUrl, discussion, "hackernews");
+                return new Article(objectId, title, articleUrl, discussion, "hackernews", publishedAt);
             }
             return null;
         } catch (Exception e) {
@@ -701,7 +755,7 @@ public class GraphExtractionService {
                 .limit(20)
                 .forEach(a -> {
                     try {
-                        nodeRepository.insertArticle(nodeId, a.title(), a.discussionUrl(), a.platform());
+                        nodeRepository.insertArticle(nodeId, a.title(), a.discussionUrl(), a.platform(), a.publishedAt());
                     } catch (Exception e) {
                         log.debug("Falha ao persistir artigo para '{}': {}", label, e.getMessage());
                     }

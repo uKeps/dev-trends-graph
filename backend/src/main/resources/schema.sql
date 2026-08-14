@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS posts (
     hn_id       BIGINT           UNIQUE,
     score       INT              DEFAULT 0,
     created_at  TIMESTAMPTZ      NOT NULL DEFAULT now(),
+    -- Data de publicação original na fonte (HN/Dev.to/Lobsters/SO). Diferente de created_at,
+    -- que é quando o pipeline coletou. Usada para filtrar o feed de notícias por recência real.
+    published_at TIMESTAMPTZ,
     processed   BOOLEAN          NOT NULL DEFAULT false,
     node_id     UUID             REFERENCES nodes(id) ON DELETE CASCADE
 );
@@ -32,6 +35,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url
 -- Índice para buscas por data (usado no endpoint /api/v1/graph?days=N)
 CREATE INDEX IF NOT EXISTS idx_posts_created_at
     ON posts (created_at DESC);
+
+-- Índice para o feed de notícias (findRecentArticles filtra por published_at)
+CREATE INDEX IF NOT EXISTS idx_posts_published_at
+    ON posts (published_at DESC NULLS LAST);
 
 -- Índice para filtrar posts não processados
 CREATE INDEX IF NOT EXISTS idx_posts_processed
