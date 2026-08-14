@@ -115,7 +115,7 @@ public class GraphController {
 
         if (days < 1 || days > 365) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
+                    .body(Map.of("error", "Query parameter 'days' must be between 1 and 365."));
         }
 
         try {
@@ -170,8 +170,8 @@ public class GraphController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
-                    "error", "Falha ao consultar banco de dados Supabase.",
-                    "message", e.getMessage() != null ? e.getMessage() : "Erro interno no servidor",
+                    "error", "Failed to query the database.",
+                    "message", e.getMessage() != null ? e.getMessage() : "Internal server error",
                     "nodes", List.of(),
                     "edges", List.of()
             ));
@@ -194,11 +194,11 @@ public class GraphController {
 
         if (days < 1 || days > 365) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
+                    .body(Map.of("error", "Query parameter 'days' must be between 1 and 365."));
         }
         if (limit < 1 || limit > 300) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "O parâmetro 'limit' deve estar entre 1 e 300."));
+                    .body(Map.of("error", "Query parameter 'limit' must be between 1 and 300."));
         }
 
         List<ArticlePreview> articles = nodeRepository.findRecentArticles(days, limit);
@@ -246,11 +246,11 @@ public class GraphController {
 
         if (days < 1 || days > 365) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "O parâmetro 'days' deve estar entre 1 e 365."));
+                    .body(Map.of("error", "Query parameter 'days' must be between 1 and 365."));
         }
         if (limit < 1 || limit > 100) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "O parâmetro 'limit' deve estar entre 1 e 100."));
+                    .body(Map.of("error", "Query parameter 'limit' must be between 1 and 100."));
         }
 
         List<Node> topNodes = nodeRepository.findTopByHypeScore(days, limit);
