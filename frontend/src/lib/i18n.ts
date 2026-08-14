@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 export const dict = {
   en: {
     tagline: "the hype, mapped daily",
-    searchPlaceholder: "search_technology",
+    searchPlaceholder: "Search technology",
     connectOnHover: "Show every link",
     viewColumns: "Columns",
     viewGrid: "Grid",
@@ -40,7 +40,7 @@ export const dict = {
   },
   pt: {
     tagline: "the hype, mapped daily",
-    searchPlaceholder: "buscar_tecnologia",
+    searchPlaceholder: "Buscar tecnologia",
     connectOnHover: "Mostrar todas as conexões",
     viewColumns: "Colunas",
     viewGrid: "Grid",
