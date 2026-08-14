@@ -18,6 +18,13 @@ import java.util.UUID;
 @Repository
 public class NodeRepository {
 
+    /** Teto intencional para queries de grafo. Sem este LIMIT, /api/v1/graph
+     *  retorna o conjunto inteiro — em produção podemos ter milhares de nós
+     *  e a página do frontend travaria ao tentar renderizar todos. Manter
+     *  o limite explícito (em vez de depender do spring.jdbc.template.max-rows)
+     *  torna a truncagem visível e revisável. */
+    public static final int GRAPH_QUERY_LIMIT = 500;
+
     private final JdbcTemplate jdbc;
 
     public NodeRepository(JdbcTemplate jdbc) {
@@ -139,6 +146,7 @@ public class NodeRepository {
                     'blog', 'system', 'file', 'code', 'tech', 'technology', 'data', 'app'
                   )
                 ORDER BY hype_score DESC
+                LIMIT ?
                 """.formatted(summaryColumn(lang));
         return jdbc.query(sql, (rs, rowNum) -> {
             Node n = new Node(
@@ -155,7 +163,7 @@ public class NodeRepository {
             n.setSourceTitle(rs.getString("source_title"));
             n.setSourcePlatform(rs.getString("source_platform"));
             return n;
-        }, days);
+        }, days, GRAPH_QUERY_LIMIT);
     }
 
     /**

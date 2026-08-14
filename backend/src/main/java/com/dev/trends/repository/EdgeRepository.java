@@ -11,6 +11,10 @@ import java.util.UUID;
 @Repository
 public class EdgeRepository {
 
+    /** Mesmo teto intencional do NodeRepository.GRAPH_QUERY_LIMIT — manter
+     *  consistente para o conjunto (nós, arestas) caber na resposta. */
+    private static final int EDGE_QUERY_LIMIT = 500;
+
     private final JdbcTemplate jdbc;
 
     public EdgeRepository(JdbcTemplate jdbc) {
@@ -46,6 +50,7 @@ public class EdgeRepository {
                 WHERE ns.last_seen >= NOW() - (? || ' days')::INTERVAL
                    OR nt.last_seen >= NOW() - (? || ' days')::INTERVAL
                 ORDER BY e.weight DESC
+                LIMIT ?
                 """;
         return jdbc.query(sql, (rs, rowNum) -> new Edge(
                 UUID.fromString(rs.getString("id")),
@@ -56,7 +61,7 @@ public class EdgeRepository {
                 rs.getString("relation_type"),
                 rs.getInt("weight"),
                 rs.getObject("created_at", OffsetDateTime.class)
-        ), days, days);
+        ), days, days, EDGE_QUERY_LIMIT);
     }
 
     /**
