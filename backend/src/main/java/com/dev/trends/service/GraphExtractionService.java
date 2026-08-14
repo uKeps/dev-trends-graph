@@ -78,17 +78,6 @@ public class GraphExtractionService {
      */
     private final TransactionTemplate transactionTemplate;
 
-    /**
-     * Motivo da última falha do LLM, ou null se a extração usou o LLM de verdade. Exposto no
-     * /api/v1/ingest porque a queda para extração por palavra-chave é silenciosa: o pipeline
-     * responde "success" de qualquer jeito, e foi assim que ela passou dias sem ser notada.
-     */
-    private volatile String lastLlmError;
-
-    public String getLastLlmError() {
-        return lastLlmError;
-    }
-
     @Value("${openai.api.key:${GROQ_API_KEY:}}")
     private String llmApiKey;
 
@@ -133,7 +122,6 @@ public class GraphExtractionService {
      */
     public ExtractionResult runIngestionPipeline() {
         log.info("Iniciando pipeline de ingestão multi-fonte...");
-        lastLlmError = null;
 
         List<Article> articles = fetchAllArticles();
         if (articles.isEmpty()) {
@@ -150,7 +138,7 @@ public class GraphExtractionService {
         int edgesCreated = persistEdges(extracted.edges(), articles);
 
         log.info("Pipeline concluído. Nós: {}, Arestas: {}", nodesCreated, edgesCreated);
-        return new ExtractionResult(extracted.nodes(), extracted.edges());
+        return extracted;
     }
 
     // =========================================================
@@ -385,11 +373,19 @@ public class GraphExtractionService {
             "blog", "system", "file", "code", "tech", "technology", "data", "app"
     );
 
+    /** Resultado da chamada ao LLM. `content` é null em caso de falha; `error`
+     *  descreve a falha (null em caso de sucesso). Equivalente a um Result<String, String>
+     *  para evitar um campo mutável compartilhado entre requests. */
+    private record LlmCallResult(String content, String error) {
+        boolean failed() { return content == null; }
+    }
+
     /**
-     * Faz uma chamada ao LLM com o modelo especificado e retorna o texto já limpo do campo
-     * "content" (sem fences de markdown). Retorna null em caso de erro de rede/API.
+     * Faz uma chamada ao LLM e devolve o conteúdo já limpo. Em caso de falha, devolve
+     * o motivo no campo `error` (per-call) — não escreve em campo de instância, então
+     * requests concorrentes não se sobrescrevem.
      */
-    private String requestLlmContent(String model, String systemPrompt, String userMessage) {
+    private LlmCallResult requestLlmContent(String model, String systemPrompt, String userMessage) {
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", model,
@@ -418,9 +414,9 @@ public class GraphExtractionService {
             if (llmResp.statusCode() != 200) {
                 log.error("LLM API ({}) status {}. Body: {}", model, llmResp.statusCode(), llmResp.body());
                 String body = llmResp.body();
-                lastLlmError = "HTTP " + llmResp.statusCode() + " em " + model + ": "
+                String error = "HTTP " + llmResp.statusCode() + " em " + model + ": "
                         + (body.length() > 400 ? body.substring(0, 400) : body);
-                return null;
+                return new LlmCallResult(null, error);
             }
 
             JsonNode root = objectMapper.readTree(llmResp.body());
@@ -428,12 +424,11 @@ public class GraphExtractionService {
             content = content.replaceAll("```json", "").replaceAll("```", "").trim();
             log.info("Resposta bruta do LLM {} ({} chars): {}", model, content.length(),
                     content.length() > 200 ? content.substring(0, 200) + "..." : content);
-            return content;
+            return new LlmCallResult(content, null);
 
         } catch (Exception e) {
             log.error("Erro na chamada ao LLM ({}): {}", model, e.getMessage(), e);
-            lastLlmError = model + ": " + e;
-            return null;
+            return new LlmCallResult(null, model + ": " + e);
         }
     }
 
@@ -456,8 +451,7 @@ public class GraphExtractionService {
     private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
             log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
-            lastLlmError = "GROQ_API_KEY ausente na configuração do serviço";
-            return extractByKeyword(articles);
+            return extractByKeyword(articles, "GROQ_API_KEY ausente na configuração do serviço");
         }
 
         // Sem os links: a fonte de cada nó é resolvida localmente em parseLlmResponse, então
@@ -494,18 +488,18 @@ public class GraphExtractionService {
 
         String userMessage = "Analise estas matérias e extraia o grafo de conhecimento:\n\n" + articlesBlock;
 
-        String content = requestLlmContent(llmModel, systemPrompt, userMessage);
+        LlmCallResult llmCall = requestLlmContent(llmModel, systemPrompt, userMessage);
 
-        if (content == null || !content.trim().startsWith("{")) {
+        if (llmCall.failed() || !llmCall.content().trim().startsWith("{")) {
             log.error("Modelo {} não retornou JSON válido. Caindo para extração por palavras-chave. Resposta: '{}'",
-                    llmModel, content);
-            if (lastLlmError == null) {
-                lastLlmError = "resposta sem JSON de " + llmModel;
-            }
-            return extractByKeyword(articles);
+                    llmModel, llmCall.content());
+            String error = llmCall.error() != null
+                    ? llmCall.error()
+                    : "resposta sem JSON de " + llmModel;
+            return extractByKeyword(articles, error);
         }
 
-        return parseLlmResponse(content, articles);
+        return parseLlmResponse(llmCall.content(), articles);
     }
 
     /**
@@ -608,11 +602,11 @@ public class GraphExtractionService {
                     .filter(e -> !isBlacklisted(e.source()) && !isBlacklisted(e.target()))
                     .toList();
 
-            return new ExtractionResult(nodes, edges);
+            return new ExtractionResult(nodes, edges, null);
 
         } catch (Exception e) {
             log.error("Falha ao parsear resposta do LLM: {}", e.getMessage(), e);
-            return ExtractionResult.empty();
+            return ExtractionResult.withError("falha ao parsear JSON do LLM: " + e.getMessage());
         }
     }
 
@@ -694,7 +688,7 @@ public class GraphExtractionService {
         return BLACKLIST.stream().anyMatch(b -> lower.equals(b) || lower.startsWith(b + " ") || lower.endsWith(" " + b));
     }
 
-    private ExtractionResult extractByKeyword(List<Article> articles) {
+    private ExtractionResult extractByKeyword(List<Article> articles, String llmError) {
         List<String> titles = articles.stream().map(Article::title).toList();
         List<String> techKeywords = List.of(
                 "AI", "LLM", "GPT", "Claude", "Gemini", "Llama", "Python", "Java", "JavaScript", "Rust",
@@ -725,7 +719,7 @@ public class GraphExtractionService {
             edges.add(new EdgeRequest(mentionedTerms.get(i), mentionedTerms.get(i + 1), "RELATED_TO"));
         }
 
-        return new ExtractionResult(nodes, edges);
+        return new ExtractionResult(nodes, edges, llmError);
     }
 
     private String categorize(String term) {

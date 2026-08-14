@@ -311,8 +311,9 @@ public class GraphController {
 
             // Sem isto a rodada responde "success" mesmo quando o LLM falhou e a extração caiu
             // na lista fixa de palavras-chave — foi assim que a curadoria ficou dias parada
-            // sem ninguém perceber.
-            String llmError = graphExtractionService.getLastLlmError();
+            // sem ninguém perceber. llmError agora viaja dentro do ExtractionResult,
+            // então requests concorrentes não se sobrescrevem.
+            String llmError = result.llmError();
 
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("status", llmError == null ? "success" : "degraded");
