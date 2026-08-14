@@ -9,11 +9,14 @@ import com.dev.trends.service.GraphExtractionService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Controller REST que expõe os endpoints do grafo de tendências.
@@ -26,6 +29,17 @@ public class GraphController {
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
     private final GraphExtractionService graphExtractionService;
+
+    /**
+     * Rate limit in-memory para /api/v1/ingest: 1 request por chave a cada 5 minutos.
+     * A pipeline dispara ~185 requests externos + 1 chamada LLM (até 60s) por execução,
+     * então em produção (Render free tier, cold start + LLM tier grátis) o ideal é
+     * manter o intervalo longo. O contador é resetado a cada restart do processo —
+     * aceitável porque o caller legítimo é o workflow do GitHub Actions de 6 em 6h.
+     * Map está preenchido com bare longs via AtomicLong para não depender de boxing.
+     */
+    private static final Duration INGEST_RATE_LIMIT_WINDOW = Duration.ofMinutes(5);
+    private final ConcurrentHashMap<String, AtomicLong> lastIngestByKey = new ConcurrentHashMap<>();
 
     public GraphController(
             NodeRepository nodeRepository,
@@ -252,18 +266,45 @@ public class GraphController {
     /**
      * POST /api/v1/ingest
      * Aciona manualmente o pipeline de ingestão multi-fonte.
-     * Protegido por header de API key básica para uso em webhooks.
+     *
+     * Falha FECHADA: o endpoint só aceita request se INGESTION_API_KEY estiver
+     * configurado no ambiente. Sem chave, /ingest é um convite aberto para que
+     * qualquer um dispare a pipeline (~185 HTTP + 1 LLM) e gaste o budget da
+     * chave. Antes a autenticação era silenciosamente pulada quando a env var
+     * estava ausente.
+     *
+     * Rate limit: 1 request por chave a cada 5 min, em memória. Chave do
+     * caller é o X-API-Key fornecido (anônimo vira "anonymous" — o que vai
+     * ser rejeitado pelo fail-closed na prática).
      */
     @PostMapping("/api/v1/ingest")
     public ResponseEntity<Map<String, Object>> triggerIngestion(
             @RequestHeader(value = "X-API-Key", required = false) String apiKey) {
 
         String configuredKey = System.getenv("INGESTION_API_KEY");
-        if (configuredKey != null && !configuredKey.isBlank() &&
-            (apiKey == null || !apiKey.equals(configuredKey))) {
+        if (configuredKey == null || configuredKey.isBlank()) {
+            return ResponseEntity.status(503)
+                    .body(Map.of("error", "Ingestion is not configured. Set INGESTION_API_KEY on the service."));
+        }
+        if (apiKey == null || !apiKey.equals(configuredKey)) {
             return ResponseEntity.status(401)
                     .body(Map.of("error", "Unauthorized. Provide a valid X-API-Key header."));
         }
+
+        long now = System.currentTimeMillis();
+        long windowMs = INGEST_RATE_LIMIT_WINDOW.toMillis();
+        AtomicLong last = lastIngestByKey.computeIfAbsent(apiKey, k -> new AtomicLong(0));
+        long lastTs = last.get();
+        if (lastTs != 0 && now - lastTs < windowMs) {
+            long retryAfterSec = (windowMs - (now - lastTs)) / 1000;
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(retryAfterSec))
+                    .body(Map.of(
+                            "error", "Rate limit exceeded. Try again later.",
+                            "retryAfterSeconds", retryAfterSec
+                    ));
+        }
+        last.set(now);
 
         try {
             var result = graphExtractionService.runIngestionPipeline();
