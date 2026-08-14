@@ -11,7 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -67,6 +68,15 @@ public class GraphExtractionService {
     private final ObjectMapper objectMapper;
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
+    /**
+     * Usado para delimitar transações SÓ em volta da persistência (persistNodes/persistEdges).
+     * O pipeline inteiro não roda dentro de uma transação: as chamadas HTTP (~185) e o request
+     * síncrono ao LLM acontecem sem segurar uma conexão do pool (que tem só 3 slots no Render
+     * free tier). Cada upsert individual já é atômico via ON CONFLICT; nós e arestas pertencem
+     * a agregados independentes, então não precisaríamos de uma transação "global" — só queremos
+     * que cada upsert pegue e libere o pool rapidamente.
+     */
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * Motivo da última falha do LLM, ou null se a extração usou o LLM de verdade. Exposto no
@@ -91,10 +101,12 @@ public class GraphExtractionService {
     public GraphExtractionService(
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PlatformTransactionManager transactionManager) {
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .followRedirects(HttpClient.Redirect.NORMAL)
@@ -114,8 +126,11 @@ public class GraphExtractionService {
 
     /**
      * Pipeline principal: busca artigos de múltiplas fontes → extrai grafo via LLM → persiste.
+     * Sem {@code @Transactional} aqui de propósito: o pipeline inclui ~185 requests HTTP e
+     * uma chamada síncrona ao LLM (até 60s). Manter a transação nesse intervalo monopolizaria
+     * uma conexão do Hikari (pool de 3) e estouraria o limite em qualquer pareamento.
+     * A persistência é envolvida em uma transação curta em persistNodes/persistEdges.
      */
-    @Transactional
     public ExtractionResult runIngestionPipeline() {
         log.info("Iniciando pipeline de ingestão multi-fonte...");
         lastLlmError = null;
@@ -730,18 +745,20 @@ public class GraphExtractionService {
     // =========================================================
 
     private int persistNodes(List<NodeRequest> nodes, List<Article> articles) {
-        int count = 0;
-        for (NodeRequest node : nodes) {
-            try {
-                UUID nodeId = nodeRepository.upsertNode(node.label(), node.category(), node.summary(),
-                        node.sourceUrl(), node.sourceTitle(), node.sourcePlatform());
-                persistNodeArticles(nodeId, node.label(), articles);
-                count++;
-            } catch (Exception e) {
-                log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());
+        return transactionTemplate.execute(status -> {
+            int count = 0;
+            for (NodeRequest node : nodes) {
+                try {
+                    UUID nodeId = nodeRepository.upsertNode(node.label(), node.category(), node.summary(),
+                            node.sourceUrl(), node.sourceTitle(), node.sourcePlatform());
+                    persistNodeArticles(nodeId, node.label(), articles);
+                    count++;
+                } catch (Exception e) {
+                    log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());
+                }
             }
-        }
-        return count;
+            return count;
+        });
     }
 
     /**
@@ -763,28 +780,30 @@ public class GraphExtractionService {
     }
 
     private int persistEdges(List<EdgeRequest> edges, List<Article> articles) {
-        int count = 0;
-        for (EdgeRequest edge : edges) {
-            try {
-                UUID sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
-                UUID targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
+        return transactionTemplate.execute(status -> {
+            int count = 0;
+            for (EdgeRequest edge : edges) {
+                try {
+                    UUID sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
+                    UUID targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
 
-                if (sourceId == null) {
-                    sourceId = createOrphanNode(edge.source(), articles);
-                }
-                if (targetId == null) {
-                    targetId = createOrphanNode(edge.target(), articles);
-                }
+                    if (sourceId == null) {
+                        sourceId = createOrphanNode(edge.source(), articles);
+                    }
+                    if (targetId == null) {
+                        targetId = createOrphanNode(edge.target(), articles);
+                    }
 
-                if (sourceId != null && targetId != null && !sourceId.equals(targetId)) {
-                    edgeRepository.upsertEdge(sourceId, targetId, edge.relation());
-                    count++;
+                    if (sourceId != null && targetId != null && !sourceId.equals(targetId)) {
+                        edgeRepository.upsertEdge(sourceId, targetId, edge.relation());
+                        count++;
+                    }
+                } catch (Exception e) {
+                    log.warn("Falha ao persistir aresta '{}→{}': {}", edge.source(), edge.target(), e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Falha ao persistir aresta '{}→{}': {}", edge.source(), edge.target(), e.getMessage());
             }
-        }
-        return count;
+            return count;
+        });
     }
 
     /**

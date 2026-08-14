@@ -3,6 +3,9 @@ package com.dev.trends.service;
 import com.dev.trends.service.GraphExtractionService.Article;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -12,6 +15,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * A amostragem do prompt existe para caber no limite de tokens por minuto da Groq: se ela
@@ -20,8 +25,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class GraphExtractionServiceTest {
 
-    private final GraphExtractionService service =
-            new GraphExtractionService(null, null, new ObjectMapper());
+    private final GraphExtractionService service = buildService();
+
+    /** Constroi o service com um TransactionManager no-op (os testes de amostragem
+     *  não disparam persistência, mas o construtor exige a dependência). */
+    private static GraphExtractionService buildService() {
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        TransactionStatus status = new SimpleTransactionStatus();
+        when(txManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(status);
+        return new GraphExtractionService(null, null, new ObjectMapper(), txManager);
+    }
 
     /** Reproduz a ordem real de fetchAllArticles: as fontes chegam concatenadas, não intercaladas. */
     private static List<Article> collected(int hn, int devto, int lobsters, int stackoverflow) {
