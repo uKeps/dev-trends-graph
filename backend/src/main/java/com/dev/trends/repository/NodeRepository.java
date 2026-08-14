@@ -14,6 +14,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Repository
 public class NodeRepository {
@@ -24,6 +25,25 @@ public class NodeRepository {
      *  o limite explícito (em vez de depender do spring.jdbc.template.max-rows)
      *  torna a truncagem visível e revisável. */
     public static final int GRAPH_QUERY_LIMIT = 500;
+
+    /** Termos genéricos que NÃO devem aparecer como nós do grafo (são o output
+     *  típico do LLM quando ele desiste de extrair algo específico). O mesmo
+     *  conjunto é usado:
+     *  - em findNodesSince() como filtro SQL (LIKE em LOWER),
+     *  - em GraphExtractionService.isBlacklisted() para descartar o nó
+     *    extraído antes de persisti-lo.
+     *  Manter os dois lados derivados daqui garante que adicionar 'docker' ou
+     *  tirar 'web' da lista vale nos dois lugares sem ter que lembrar do outro. */
+    public static final List<String> BLACKLIST = List.of(
+            "mac", "macos", "linux", "windows", "unix", "pc", "computer", "software",
+            "hardware", "internet", "web", "news", "show hn", "ask hn", "pdf", "article",
+            "blog", "system", "file", "code", "tech", "technology", "data", "app"
+    );
+
+    /** Quoted, comma-separated list suitable for "IN (...)" in SQL. */
+    private static final String BLACKLIST_SQL = BLACKLIST.stream()
+            .map(s -> "'" + s.replace("'", "''") + "'")
+            .collect(Collectors.joining(", "));
 
     private final JdbcTemplate jdbc;
 
@@ -142,14 +162,10 @@ public class NodeRepository {
                 SELECT id, label, category, %s AS summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
                 WHERE last_seen >= NOW() - (? || ' days')::INTERVAL
-                  AND LOWER(label) NOT IN (
-                    'mac', 'macos', 'linux', 'windows', 'unix', 'pc', 'computer', 'software',
-                    'hardware', 'internet', 'web', 'news', 'show hn', 'ask hn', 'pdf', 'article',
-                    'blog', 'system', 'file', 'code', 'tech', 'technology', 'data', 'app'
-                  )
+                  AND LOWER(label) NOT IN (%s)
                 ORDER BY hype_score DESC
                 LIMIT ?
-                """.formatted(summaryColumn(lang));
+                """.formatted(summaryColumn(lang), BLACKLIST_SQL);
         return jdbc.query(sql, (rs, rowNum) -> {
             Node n = new Node(
                     UUID.fromString(rs.getString("id")),

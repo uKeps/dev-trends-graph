@@ -367,11 +367,7 @@ public class GraphExtractionService {
     // FASE 2: Extração via LLM
     // =========================================================
 
-    private static final List<String> BLACKLIST = List.of(
-            "mac", "macos", "linux", "windows", "unix", "pc", "computer", "software",
-            "hardware", "internet", "web", "news", "show hn", "ask hn", "pdf", "article",
-            "blog", "system", "file", "code", "tech", "technology", "data", "app"
-    );
+    private static final List<String> BLACKLIST = NodeRepository.BLACKLIST;
 
     /** Resultado da chamada ao LLM. `content` é null em caso de falha; `error`
      *  descreve a falha (null em caso de sucesso). Equivalente a um Result<String, String>
