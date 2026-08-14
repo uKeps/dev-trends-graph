@@ -65,9 +65,15 @@ CREATE TABLE IF NOT EXISTS nodes (
     summary_en      TEXT,   -- resumo em inglês (idioma padrão da UI)
     source_url      TEXT,
     source_title    TEXT,
-    source_platform VARCHAR(50),
-    CONSTRAINT uq_nodes_label UNIQUE (label)
+    source_platform VARCHAR(50)
 );
+
+-- Unicidade case-insensitive sobre o label. O LLM raramente devolve o label
+-- exatamente igual ao da rodada anterior (ex.: "react" vs "React"), e a versão
+-- antiga com UNIQUE(label) deixava os dois coexistirem — duplicando card no
+-- grafo. Esse índice substitui o constraint uq_nodes_label da versão anterior.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nodes_label_lower
+    ON nodes (LOWER(label));
 
 -- Índice B-Tree na label para buscas e joins com arestas
 CREATE INDEX IF NOT EXISTS idx_nodes_label
@@ -143,7 +149,7 @@ DECLARE
 BEGIN
     INSERT INTO nodes (label, category, hype_score, mention_count, last_seen)
     VALUES (p_label, p_category, 1.0, 1, now())
-    ON CONFLICT (label) DO UPDATE
+    ON CONFLICT (LOWER(label)) DO UPDATE
         SET mention_count = nodes.mention_count + 1,
             hype_score    = nodes.hype_score + 0.5,
             last_seen     = now(),

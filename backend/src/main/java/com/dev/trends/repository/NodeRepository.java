@@ -100,14 +100,16 @@ public class NodeRepository {
 
     /**
      * Insere ou atualiza um nó com resumo, link de origem e plataforma.
+     * A unicidade é case-insensitive (índice uq_nodes_label_lower em schema.sql):
+     * "react" e "React" colidem no mesmo nó.
      */
     public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle, String sourcePlatform) {
         ensureSourceColumnsExist();
-        
+
         String sql = """
                 INSERT INTO nodes (label, category, summary, source_url, source_title, source_platform, hype_score, mention_count, last_seen)
                 VALUES (?, ?, ?, ?, ?, ?, 1.0, 1, NOW())
-                ON CONFLICT (label) DO UPDATE
+                ON CONFLICT (LOWER(label)) DO UPDATE
                     SET mention_count = nodes.mention_count + 1,
                         hype_score    = nodes.hype_score + 0.5,
                         last_seen     = NOW(),
