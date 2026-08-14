@@ -7,6 +7,7 @@ import com.dev.trends.repository.EdgeRepository;
 import com.dev.trends.repository.NodeRepository;
 import com.dev.trends.service.GraphExtractionService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
@@ -29,6 +30,7 @@ public class GraphController {
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
     private final GraphExtractionService graphExtractionService;
+    private final JdbcTemplate jdbc;
 
     /**
      * Rate limit in-memory para /api/v1/ingest: 1 request por chave a cada 5 minutos.
@@ -44,10 +46,12 @@ public class GraphController {
     public GraphController(
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
-            GraphExtractionService graphExtractionService) {
+            GraphExtractionService graphExtractionService,
+            JdbcTemplate jdbc) {
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.graphExtractionService = graphExtractionService;
+        this.jdbc = jdbc;
     }
 
     /** Idioma dos resumos: "pt" para português, qualquer outro valor cai no inglês (padrão). */
@@ -63,14 +67,32 @@ public class GraphController {
      * GET /health
      * Verifica se o serviço está operacional. O Render usa este endpoint
      * para decidir se o container passou no health check de startup.
+     * Além do sinal "estou rodando", faz um SELECT 1 no banco — sem isso,
+     * o health voltava 200 mesmo com o Supabase indisponível, e a UI
+     * ficava em loop de loading sem nenhum sinal de falha.
      */
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
-        Map<String, Object> status = new LinkedHashMap<>();
-        status.put("status", "UP");
-        status.put("service", "reticle-api");
-        status.put("timestamp", Instant.now().toString());
-        return ResponseEntity.ok(status);
+        Map<String, String> components = new LinkedHashMap<>();
+        boolean dbUp = checkDatabase(components);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", dbUp ? "UP" : "DOWN");
+        body.put("service", "reticle-api");
+        body.put("timestamp", Instant.now().toString());
+        body.put("components", components);
+        return ResponseEntity.status(dbUp ? 200 : 503).body(body);
+    }
+
+    private boolean checkDatabase(Map<String, String> components) {
+        try {
+            Integer one = jdbc.queryForObject("SELECT 1", Integer.class);
+            components.put("database", "UP");
+            return Integer.valueOf(1).equals(one);
+        } catch (Exception e) {
+            components.put("database", "DOWN: " + e.getMessage());
+            return false;
+        }
     }
 
     // =========================================================

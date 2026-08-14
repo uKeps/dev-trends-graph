@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -36,13 +38,30 @@ class GraphControllerTest {
     @MockBean
     private GraphExtractionService graphExtractionService;
 
+    @MockBean
+    private JdbcTemplate jdbc;
+
     @Test
     void healthEndpoint_shouldReturnUp() throws Exception {
+        when(jdbc.queryForObject(eq("SELECT 1"), eq(Integer.class))).thenReturn(1);
+
         mockMvc.perform(get("/health"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.service").value("reticle-api"))
-                .andExpect(jsonPath("$.timestamp").exists());
+                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.components.database").value("UP"));
+    }
+
+    @Test
+    void healthEndpoint_shouldReturnDownWhenDatabaseUnreachable() throws Exception {
+        when(jdbc.queryForObject(eq("SELECT 1"), eq(Integer.class)))
+                .thenThrow(new org.springframework.dao.TransientDataAccessResourceException("connection refused"));
+
+        mockMvc.perform(get("/health"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.status").value("DOWN"))
+                .andExpect(jsonPath("$.components.database").value(org.hamcrest.Matchers.startsWith("DOWN")));
     }
 
     @Test
