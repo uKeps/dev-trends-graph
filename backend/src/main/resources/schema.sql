@@ -16,14 +16,10 @@ CREATE TABLE IF NOT EXISTS posts (
     title       TEXT             NOT NULL,
     url         TEXT,
     platform    VARCHAR(50)      NOT NULL DEFAULT 'hackernews',
-    content     TEXT,
-    hn_id       BIGINT           UNIQUE,
-    score       INT              DEFAULT 0,
     created_at  TIMESTAMPTZ      NOT NULL DEFAULT now(),
     -- Data de publicação original na fonte (HN/Dev.to/Lobsters/SO). Diferente de created_at,
     -- que é quando o pipeline coletou. Usada para filtrar o feed de notícias por recência real.
     published_at TIMESTAMPTZ,
-    processed   BOOLEAN          NOT NULL DEFAULT false,
     node_id     UUID             REFERENCES nodes(id) ON DELETE CASCADE
 );
 
@@ -39,11 +35,6 @@ CREATE INDEX IF NOT EXISTS idx_posts_created_at
 -- Índice para o feed de notícias (findRecentArticles filtra por published_at)
 CREATE INDEX IF NOT EXISTS idx_posts_published_at
     ON posts (published_at DESC NULLS LAST);
-
--- Índice para filtrar posts não processados
-CREATE INDEX IF NOT EXISTS idx_posts_processed
-    ON posts (processed)
-    WHERE processed = false;
 
 -- Índice para busca por plataforma
 CREATE INDEX IF NOT EXISTS idx_posts_platform
@@ -120,21 +111,6 @@ CREATE INDEX IF NOT EXISTS idx_edges_relation_type
 -- Índice por data de criação para queries temporais
 CREATE INDEX IF NOT EXISTS idx_edges_created_at
     ON edges (created_at DESC);
-
--- ============================================================
--- TABELA: ingestion_log
--- Rastreamento de execuções do pipeline de ingestão
--- ============================================================
-CREATE TABLE IF NOT EXISTS ingestion_log (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    started_at    TIMESTAMPTZ      NOT NULL DEFAULT now(),
-    finished_at   TIMESTAMPTZ,
-    posts_fetched INT              DEFAULT 0,
-    nodes_created INT              DEFAULT 0,
-    edges_created INT              DEFAULT 0,
-    status        VARCHAR(20)      NOT NULL DEFAULT 'RUNNING',
-    error_message TEXT
-);
 
 -- ============================================================
 -- FUNÇÃO: upsert_node
