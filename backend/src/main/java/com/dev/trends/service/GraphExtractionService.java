@@ -25,10 +25,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -499,14 +503,58 @@ public class GraphExtractionService {
     }
 
     /**
+     * Cache de Patterns compilados por palavra. {@link #containsWord} roda em hot path
+     * (uma vez por nó por artigo em {@code parseLlmResponse}, mais vezes em
+     * {@code persistNodeArticles} e {@code findLiveSource}); recompilar o regex a cada
+     * chamada virou o custo dominante dessa etapa. Cachear é transparante: o matcher
+     * resultante é byte-a-byte igual ao original.
+     */
+    private static final ConcurrentHashMap<String, Pattern> WORD_PATTERNS = new ConcurrentHashMap<>();
+
+    /**
      * Checa se `word` aparece em `text` como palavra inteira (não como substring dentro de
      * outra palavra). Evita que "Java" case dentro de "JavaScript" e vice-versa.
      */
     private boolean containsWord(String text, String word) {
         if (text == null || word == null || word.isBlank()) return false;
-        return Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE)
-                .matcher(text)
-                .find();
+        Pattern pattern = WORD_PATTERNS.computeIfAbsent(word,
+                w -> Pattern.compile("\\b" + Pattern.quote(w) + "\\b", Pattern.CASE_INSENSITIVE));
+        return pattern.matcher(text).find();
+    }
+
+    /**
+     * Índice pré-computado de label normalizado → artigo original. Permite que
+     * {@link #findBestMatchingArticle} rode em O(1) em vez de varrer a lista inteira
+     * de artigos a cada nó/aresta processado. Preserva "primeiro match vence" percorrendo
+     * a lista de artigos em ordem original na etapa de construção do índice.
+     */
+    private Map<String, Article> indexArticlesByLabel(List<Article> articles) {
+        Map<String, Article> index = new HashMap<>();
+        if (articles == null) return index;
+        for (Article article : articles) {
+            if (article == null || article.title() == null) continue;
+            String[] words = article.title().split("\\s+");
+            for (String word : words) {
+                String trimmed = word.toLowerCase();
+                index.putIfAbsent(trimmed, article);
+            }
+        }
+        return index;
+    }
+
+    /**
+     * Versão indexada de {@link #findBestMatchingArticle}. Procura no mapa pré-computado
+     * (em vez de iterar a lista) — equivalente em semântica quando o índice foi
+     * construído sobre a mesma lista.
+     */
+    private Article findBestMatchingArticleFromIndex(String label, Map<String, Article> index) {
+        if (label == null || label.isBlank() || index.isEmpty()) return null;
+        String[] words = label.split("\\s+");
+        for (String word : words) {
+            Article match = index.get(word.toLowerCase());
+            if (match != null) return match;
+        }
+        return null;
     }
 
     /**
@@ -568,6 +616,8 @@ public class GraphExtractionService {
         try {
             JsonNode graphJson = objectMapper.readTree(content);
 
+            Map<String, Article> articleIndex = indexArticlesByLabel(articles);
+
             List<NodeRequest> nodes = StreamSupport.stream(
                             graphJson.path("nodes").spliterator(), false)
                     .map(n -> {
@@ -577,7 +627,7 @@ public class GraphExtractionService {
                         // A fonte vem do lote coletado, não do LLM: a URL que ele devolvia era
                         // descartada quando não batia com um artigo real (alucinação), e o resto
                         // dos campos já saía daqui. Sem fonte, o frontend busca uma sob demanda.
-                        Article match = findBestMatchingArticle(label, articles);
+                        Article match = findBestMatchingArticleFromIndex(label, articleIndex);
                         String sourceUrl = match != null ? match.discussionUrl() : "";
                         String sourceTitle = match != null ? match.title() : "Discussão na comunidade dev";
                         String sourcePlatform = match != null ? match.platform() : "web";
@@ -694,13 +744,15 @@ public class GraphExtractionService {
                 "RAG", "Vector Database", "Embedding", "Agent", "MCP", "Spring Boot"
         );
 
+        Map<String, Article> articleIndex = indexArticlesByLabel(articles);
+
         Map<String, Long> mentionCounts = techKeywords.stream()
                 .filter(kw -> titles.stream().anyMatch(t -> containsWord(t, kw)))
                 .collect(Collectors.groupingBy(kw -> kw, Collectors.counting()));
 
         List<NodeRequest> nodes = mentionCounts.entrySet().stream()
                 .map(e -> {
-                    Article match = findBestMatchingArticle(e.getKey(), articles);
+                    Article match = findBestMatchingArticleFromIndex(e.getKey(), articleIndex);
                     if (match != null) {
                         return new NodeRequest(e.getKey(), categorize(e.getKey()), null,
                                 match.discussionUrl(), match.title(), match.platform());
@@ -771,18 +823,21 @@ public class GraphExtractionService {
 
     private int persistEdges(List<EdgeRequest> edges, List<Article> articles) {
         return transactionTemplate.execute(status -> {
+            // Coleta todas as labels referenciadas pelas arestas e resolve os IDs existentes
+            // em uma única query batch. Antes era 2 SELECTs por aresta — para 50 arestas são
+            // 100 round-trips ao Postgres, agora é 1.
+            Set<String> referencedLabels = new HashSet<>();
+            for (EdgeRequest edge : edges) {
+                if (edge.source() != null && !edge.source().isBlank()) referencedLabels.add(edge.source());
+                if (edge.target() != null && !edge.target().isBlank()) referencedLabels.add(edge.target());
+            }
+            Map<String, UUID> existingIds = nodeRepository.findIdsByLabels(referencedLabels);
+
             int count = 0;
             for (EdgeRequest edge : edges) {
                 try {
-                    UUID sourceId = nodeRepository.findIdByLabel(edge.source()).orElse(null);
-                    UUID targetId = nodeRepository.findIdByLabel(edge.target()).orElse(null);
-
-                    if (sourceId == null) {
-                        sourceId = createOrphanNode(edge.source(), articles);
-                    }
-                    if (targetId == null) {
-                        targetId = createOrphanNode(edge.target(), articles);
-                    }
+                    UUID sourceId = lookupOrCreate(edge.source(), existingIds, articles);
+                    UUID targetId = lookupOrCreate(edge.target(), existingIds, articles);
 
                     if (sourceId != null && targetId != null && !sourceId.equals(targetId)) {
                         edgeRepository.upsertEdge(sourceId, targetId, edge.relation());
@@ -794,6 +849,24 @@ public class GraphExtractionService {
             }
             return count;
         });
+    }
+
+    /**
+     * Resolve o UUID de um label a partir do mapa pré-carregado; quando ausente, cria um
+     * nó órfão e popula o mapa para que chamadas subsequentes com o mesmo label não
+     * repitam o trabalho.
+     */
+    private UUID lookupOrCreate(String label, Map<String, UUID> cache, List<Article> articles) {
+        if (label == null || label.isBlank()) return null;
+        String key = label.toLowerCase();
+        UUID existing = cache.get(key);
+        if (existing != null) return existing;
+
+        UUID created = createOrphanNode(label, articles);
+        if (created != null) {
+            cache.put(key, created);
+        }
+        return created;
     }
 
     /**

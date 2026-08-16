@@ -11,7 +11,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -52,14 +57,27 @@ public class NodeRepository {
     }
 
     /**
-     * Limpa, uma vez na subida da aplicação, o resumo genérico fixo que a versão antiga do
-     * pipeline gravava em nós órfãos (referenciados só numa aresta) sem fonte. Sem esse resumo
+     * Aplica migrações de schema idempotentes uma única vez na subida da aplicação.
+     *
+     * <p>Antes, {@code ensureSourceColumnsExist()} e {@code ensureArticleColumnsExist()}
+     * rodavam em toda chamada a {@code findNodesSince} / {@code findById} /
+     * {@code insertArticle} / {@code findRecentArticles}, disparando ~10 round-trips ao
+     * Postgres por request do grafo. Como o schema não muda em runtime, adiantar tudo
+     * para o startup reduz tráfego de banco sem mudar comportamento.
+     *
+     * <p>Também limpa o resumo genérico fixo que a versão antiga do pipeline gravava
+     * em nós órfãos (referenciados só numa aresta) sem fonte — sem esse resumo
      * "cacheado", o frontend volta a disparar a busca de fonte sob demanda para esses nós.
      */
     @PostConstruct
-    public void clearOrphanPlaceholderSummaries() {
+    public void applySchemaMigrations() {
         try {
             ensureSourceColumnsExist();
+            ensureArticleColumnsExist();
+        } catch (Exception e) {
+            // Tabelas podem não existir ainda na primeira subida; ignora.
+        }
+        try {
             int updated = jdbc.update(
                     "UPDATE nodes SET summary = NULL " +
                             "WHERE summary = 'Conceito em destaque no ecossistema.' " +
@@ -85,8 +103,9 @@ public class NodeRepository {
 
     /**
      * Garante que as colunas summary, source_url e source_title existam na tabela nodes.
+     * Chamada uma única vez no startup via {@link #applySchemaMigrations()}.
      */
-    public void ensureSourceColumnsExist() {
+    private void ensureSourceColumnsExist() {
         try {
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary_en TEXT;");
@@ -124,8 +143,6 @@ public class NodeRepository {
      * "react" e "React" colidem no mesmo nó.
      */
     public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle, String sourcePlatform) {
-        ensureSourceColumnsExist();
-
         String sql = """
                 INSERT INTO nodes (label, category, summary, source_url, source_title, source_platform, hype_score, mention_count, last_seen)
                 VALUES (?, ?, ?, ?, ?, ?, 1.0, 1, NOW())
@@ -154,10 +171,42 @@ public class NodeRepository {
     }
 
     /**
+     * Busca os UUIDs de vários nós por label (case-insensitive), em uma única query.
+     *
+     * <p>Equivalente em semântica a chamar {@link #findIdByLabel} para cada label
+     * individualmente, mas com 1 round-trip ao banco em vez de N. Retorna um mapa
+     * label-normalizado → UUID apenas para os labels encontrados; labels ausentes
+     * simplesmente não aparecem no mapa (o caller decide se cria órfão).
+     */
+    public Map<String, UUID> findIdsByLabels(Collection<String> labels) {
+        if (labels == null || labels.isEmpty()) return Map.of();
+        Map<String, String> lowerToOriginal = new HashMap<>();
+        for (String label : labels) {
+            if (label != null && !label.isBlank()) {
+                lowerToOriginal.put(label.toLowerCase(), label);
+            }
+        }
+        if (lowerToOriginal.isEmpty()) return Map.of();
+
+        String placeholders = String.join(", ", Collections.nCopies(lowerToOriginal.size(), "?"));
+        String sql = "SELECT id, label FROM nodes WHERE LOWER(label) IN (" + placeholders + ")";
+        List<String> lowerLabels = new ArrayList<>(lowerToOriginal.keySet());
+
+        Map<String, UUID> result = new HashMap<>();
+        jdbc.query(sql, (rs) -> {
+            String label = rs.getString("label");
+            UUID id = UUID.fromString(rs.getString("id"));
+            if (label != null) {
+                result.put(label.toLowerCase(), id);
+            }
+        }, lowerLabels.toArray());
+        return result;
+    }
+
+    /**
      * Retorna todos os nós que foram vistos desde N dias atrás, ignorando termos genéricos de TI.
      */
     public List<Node> findNodesSince(int days, String lang) {
-        ensureSourceColumnsExist();
         String sql = """
                 SELECT id, label, category, %s AS summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
@@ -188,7 +237,6 @@ public class NodeRepository {
      * Busca um nó pelo ID incluindo summary, source_url, source_title e source_platform.
      */
     public Optional<Node> findById(UUID id, String lang) {
-        ensureSourceColumnsExist();
         String sql = """
                 SELECT id, label, category, %s AS summary, source_url, source_title, source_platform, hype_score, first_seen, last_seen, mention_count
                 FROM nodes
@@ -217,7 +265,6 @@ public class NodeRepository {
      * Atualiza o resumo (summary) de um nó pelo ID.
      */
     public void updateSummary(UUID id, String summary, String lang) {
-        ensureSourceColumnsExist();
         String sql = "UPDATE nodes SET " + summaryColumn(lang) + " = ? WHERE id = ?";
         jdbc.update(sql, summary, id);
     }
@@ -226,7 +273,6 @@ public class NodeRepository {
      * Atualiza a fonte (sourceUrl/sourceTitle/sourcePlatform) de um nó pelo ID.
      */
     public void updateSource(UUID id, String sourceUrl, String sourceTitle, String sourcePlatform) {
-        ensureSourceColumnsExist();
         String sql = "UPDATE nodes SET source_url = ?, source_title = ?, source_platform = ? WHERE id = ?";
         jdbc.update(sql, sourceUrl, sourceTitle, sourcePlatform, id);
     }
@@ -258,8 +304,9 @@ public class NodeRepository {
 
     /**
      * Garante que a coluna node_id (linkando artigo → tópico) exista na tabela posts.
+     * Chamada uma única vez no startup via {@link #applySchemaMigrations()}.
      */
-    public void ensureArticleColumnsExist() {
+    private void ensureArticleColumnsExist() {
         try {
             jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE CASCADE;");
             jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url ON posts (node_id, url);");
@@ -285,7 +332,6 @@ public class NodeRepository {
      */
     public void insertArticle(UUID nodeId, String title, String url, String platform, Instant publishedAt) {
         if (nodeId == null || url == null || url.isBlank()) return;
-        ensureArticleColumnsExist();
         String sql = "INSERT INTO posts (title, url, platform, node_id, published_at) VALUES (?, ?, ?, ?, ?) " +
                 "ON CONFLICT (node_id, url) DO NOTHING";
         jdbc.update(sql, title, url, platform, nodeId, publishedAt != null ? OffsetDateTime.ofInstant(publishedAt, java.time.ZoneOffset.UTC) : null);
@@ -297,7 +343,6 @@ public class NodeRepository {
      * artigos antigos coletados hoje aparecem como "fresh".
      */
     public List<ArticlePreview> findRecentArticles(int days, int limit) {
-        ensureArticleColumnsExist();
         // Teto duro de 30 dias: mesmo para posts sem published_at (backfill antigo), garante que
         // o feed não mostre nada além disso. Fica no UNION com o filtro de 'days' para o usuário
         // poder restringir ainda mais (3D, 7D, etc.) sem ver conteúdo podre.

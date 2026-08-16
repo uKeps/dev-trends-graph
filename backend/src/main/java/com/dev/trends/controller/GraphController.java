@@ -39,8 +39,14 @@ public class GraphController {
      * manter o intervalo longo. O contador é resetado a cada restart do processo —
      * aceitável porque o caller legítimo é o workflow do GitHub Actions de 6 em 6h.
      * Map está preenchido com bare longs via AtomicLong para não depender de boxing.
+     *
+     * <p>{@link #INGEST_RATE_LIMIT_MAX_KEYS} limita o tamanho do mapa: o caller legítimo
+     * é único (GitHub Actions), então em operação normal o mapa tem 1 entrada. Defesa
+     * contra chiavi inventadas por scanners/fuzzers que poderiam crescer o mapa sem
+     * parar — uma vez estourado, limpamos tudo (rate limit é resetado por restart).
      */
     private static final Duration INGEST_RATE_LIMIT_WINDOW = Duration.ofMinutes(5);
+    private static final int INGEST_RATE_LIMIT_MAX_KEYS = 64;
     private final ConcurrentHashMap<String, AtomicLong> lastIngestByKey = new ConcurrentHashMap<>();
 
     public GraphController(
@@ -315,6 +321,15 @@ public class GraphController {
 
         long now = System.currentTimeMillis();
         long windowMs = INGEST_RATE_LIMIT_WINDOW.toMillis();
+
+        // Guarda contra crescimento ilimitado do mapa (caller legítimo é único;
+        // scanners inventando chaves poderiam lotar a memória). Atingiu o teto,
+        // descartamos tudo: o rate limit por chave volta a zero, mas o atacante
+        // também perde o estado.
+        if (lastIngestByKey.size() >= INGEST_RATE_LIMIT_MAX_KEYS) {
+            lastIngestByKey.clear();
+        }
+
         AtomicLong last = lastIngestByKey.computeIfAbsent(apiKey, k -> new AtomicLong(0));
         long lastTs = last.get();
         if (lastTs != 0 && now - lastTs < windowMs) {
