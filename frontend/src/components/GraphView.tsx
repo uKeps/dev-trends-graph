@@ -349,7 +349,6 @@ export default function GraphView() {
       setRawApiEdges(graphData.edges || []);
 
       setNodes(layoutNodesByColumns(graphData.nodes || [], null));
-      setEdges(buildEdges(graphData.edges || [], null, showAllEdges));
 
       if (articlesRes.ok) {
         const articlesData = await articlesRes.json();
@@ -360,7 +359,7 @@ export default function GraphView() {
     } finally {
       setLoading(false);
     }
-  }, [layoutNodesByColumns, buildEdges, setNodes, setEdges, showAllEdges, lang]);
+  }, [layoutNodesByColumns, setNodes, lang]);
 
   useEffect(() => {
     fetchGraphData(days);
