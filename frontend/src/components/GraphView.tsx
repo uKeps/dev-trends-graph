@@ -82,6 +82,15 @@ interface ApiArticle {
 
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
 
+const PLATFORMS = [
+  { id: "hackernews", label: "Hacker News" },
+  { id: "reddit", label: "Reddit" },
+  { id: "devto", label: "Dev.to" },
+  { id: "lobsters", label: "Lobsters" },
+  { id: "stackoverflow", label: "Stack Overflow" },
+  { id: "web", label: "Web" },
+] as const;
+
 const SOURCE_LABELS: Record<string, string> = {
   hackernews: "Hacker News",
   reddit: "Reddit",
@@ -326,6 +335,13 @@ export default function GraphView() {
   const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
     "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
   );
+  const [platform, setPlatform] = useUrlState<string | null>(
+    "platform", null,
+    (raw) => {
+      const lower = raw.toLowerCase();
+      return PLATFORMS.some((p) => p.id === lower) ? lower : null;
+    },
+  );
 
   // ── Column layout by category ───────────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
@@ -414,13 +430,16 @@ export default function GraphView() {
   }, []);
 
   // ── Fetches data from the API ─────────────────────────────────────────────
-  const fetchGraphData = useCallback(async (d: number) => {
+  const fetchGraphData = useCallback(async (d: number, p: string | null) => {
     setLoading(true);
     setError(null);
     try {
+      const articlesUrl = `${API_BASE_URL}/api/v1/articles?days=${d}&limit=300${
+        p ? `&platform=${encodeURIComponent(p)}` : ""
+      }`;
       const [graphRes, articlesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/graph?days=${d}&lang=${lang}`),
-        fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=300`),
+        fetch(articlesUrl),
       ]);
       if (!graphRes.ok) throw new Error(`API error ${graphRes.status}`);
 
@@ -442,8 +461,8 @@ export default function GraphView() {
   }, [layoutNodesByColumns, setNodes, lang]);
 
   useEffect(() => {
-    fetchGraphData(days);
-  }, [days, fetchGraphData]);
+    fetchGraphData(days, platform);
+  }, [days, platform, fetchGraphData]);
 
   // Recomputes nodes and edges on hover or when the web toggle changes
   useEffect(() => {
@@ -632,6 +651,26 @@ export default function GraphView() {
               onClick={() => setMinHype(h)}
             >
               ≥ {h}
+            </button>
+          ))}
+        </div>
+
+        <div className="filter-group platform-group">
+          <span className="filter-label">{t.source}</span>
+          <button
+            className={`pill ${platform == null ? "active" : ""}`}
+            onClick={() => setPlatform(null)}
+          >
+            {t.all}
+          </button>
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              className={`pill ${platform === p.id ? "active" : ""}`}
+              onClick={() => setPlatform(p.id)}
+              aria-pressed={platform === p.id}
+            >
+              {p.label}
             </button>
           ))}
         </div>
