@@ -33,3 +33,14 @@ test("Clicking back returns to the previous URL", async ({ page }) => {
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get("days")).toBeNull();
 });
+
+test("Deep-link with days and category renders the matching filters active", async ({ page }) => {
+  await page.goto("/?days=14&cat=Framework");
+  await expect(page.getByRole("tab", { name: "14D" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("button", { name: "Framework", exact: true })).toHaveClass(/active/);
+});
+
+test("Deep-link with view mode switches the layout", async ({ page }) => {
+  await page.goto("/?view=news");
+  await expect(page.getByRole("tab", { name: /News/ })).toHaveAttribute("aria-selected", "true");
+});

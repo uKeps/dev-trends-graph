@@ -52,39 +52,6 @@ export function useUrlState<T extends string | number>(
     return () => window.removeEventListener("popstate", onPop);
   }, [param, defaultValue, parse]);
 
-  const [value, setValueState] = useState<T>(() => {
-    if (typeof window === "undefined") return defaultValue;
-    const raw = new URLSearchParams(window.location.search).get(param);
-    if (raw == null || raw === "") return defaultValue;
-    const parsed = parse(raw);
-    return parsed ?? defaultValue;
-  });
-
-  // Effect: after mount, re-read the URL so the state reflects deep-links
-  // even though the useState initializer was suppressed by SSR. The lazy
-  // setValueState (with prev === next short-circuit) avoids an infinite loop
-  // when the state already matches the URL.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const readFromUrl = () => {
-      const raw = new URLSearchParams(window.location.search).get(param);
-      if (raw == null || raw === "") {
-        setValueState((prev) => (prev === defaultValue ? prev : defaultValue));
-        return;
-      }
-      const parsed = parse(raw);
-      if (parsed === null) {
-        setValueState((prev) => (prev === defaultValue ? prev : defaultValue));
-        return;
-      }
-      setValueState((prev) => (prev === parsed ? prev : parsed));
-    };
-    readFromUrl();
-    const onPop = () => readFromUrl();
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [param, defaultValue, parse]);
-
   const setValue = useCallback(
     (next: T | ((prev: T) => T)) => {
       setValueState((prev) => {
