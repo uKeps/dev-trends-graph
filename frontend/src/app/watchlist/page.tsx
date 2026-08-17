@@ -40,7 +40,7 @@ export default function WatchlistPage() {
   }, [items.length]);
 
   return (
-    <main className="topic-page">
+    <article className="topic-page">
       <header className="topic-header">
         <Link href="/" className="topic-back">{t.backToMap}</Link>
         <h1 className="topic-title">{t.watchlistTitle}</h1>
@@ -92,6 +92,6 @@ export default function WatchlistPage() {
           })}
         </ul>
       )}
-    </main>
+    </article>
   );
 }
