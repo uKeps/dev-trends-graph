@@ -139,6 +139,29 @@ class GraphControllerTest {
     }
 
     @Test
+    void articlesEndpoint_shouldPassPlatformFilterToRepository() throws Exception {
+        when(nodeRepository.findRecentArticles(7, 100, "hackernews")).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/articles").param("platform", "HackerNews"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.articles").isArray())
+                .andExpect(jsonPath("$.meta.platform").value("hackernews"));
+
+        verify(nodeRepository).findRecentArticles(7, 100, "hackernews");
+    }
+
+    @Test
+    void articlesEndpoint_shouldAcceptNullPlatformAsAny() throws Exception {
+        when(nodeRepository.findRecentArticles(7, 100, null)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/articles"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.platform").doesNotExist());
+
+        verify(nodeRepository).findRecentArticles(7, 100, null);
+    }
+
+    @Test
     void categoriesEndpoint_shouldReturnCategoriesSortedByCount() throws Exception {
         List<Map<String, Object>> rows = List.of(
                 Map.of("category", "Framework", "count", 12L),

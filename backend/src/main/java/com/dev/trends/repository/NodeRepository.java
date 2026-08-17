@@ -276,21 +276,30 @@ public class NodeRepository {
      * Returns the most recent articles (last N days) with their associated topic,
      * for the news feed. Filters by actual publication date (when available), not
      * by ingestion date — otherwise old articles collected today would look "fresh".
+     * When {@code platform} is non-null, the result is restricted to that source
+     * (case-insensitive); null or blank means "any platform".
      */
-    public List<ArticlePreview> findRecentArticles(int days, int limit) {
+    public List<ArticlePreview> findRecentArticles(int days, int limit, String platform) {
         // Hard 30-day ceiling: even for posts without published_at (legacy backfill),
         // this guarantees the feed never shows anything older. Combined with the user's
         // `days` filter, it lets them narrow to 3D/7D/etc. without ever seeing stale content.
-        String sql = """
+        StringBuilder sql = new StringBuilder("""
                 SELECT p.title, p.url, p.platform, p.published_at, p.created_at, n.label AS node_label, n.category AS node_category
                 FROM posts p
                 JOIN nodes n ON p.node_id = n.id
                 WHERE COALESCE(p.published_at, p.created_at) >= NOW() - (? || ' days')::INTERVAL
                   AND COALESCE(p.published_at, p.created_at) >= NOW() - INTERVAL '30 days'
-                ORDER BY p.published_at DESC NULLS LAST
-                LIMIT ?
-                """;
-        return jdbc.query(sql, (rs, rowNum) -> new ArticlePreview(
+                """);
+        Object[] args;
+        if (platform != null && !platform.isBlank()) {
+            sql.append(" AND LOWER(p.platform) = LOWER(?)");
+            sql.append(" ORDER BY p.published_at DESC NULLS LAST LIMIT ?");
+            args = new Object[]{ days, platform, limit };
+        } else {
+            sql.append(" ORDER BY p.published_at DESC NULLS LAST LIMIT ?");
+            args = new Object[]{ days, limit };
+        }
+        return jdbc.query(sql.toString(), (rs, rowNum) -> new ArticlePreview(
                 rs.getString("title"),
                 rs.getString("url"),
                 rs.getString("platform"),
@@ -298,7 +307,12 @@ public class NodeRepository {
                 rs.getObject("created_at", OffsetDateTime.class),
                 rs.getString("node_label"),
                 rs.getString("node_category")
-        ), days, limit);
+        ), args);
+    }
+
+    /** Backwards-compatible overload that returns articles for every platform. */
+    public List<ArticlePreview> findRecentArticles(int days, int limit) {
+        return findRecentArticles(days, limit, null);
     }
 
     /**

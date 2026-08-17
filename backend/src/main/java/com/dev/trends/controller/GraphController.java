@@ -156,7 +156,8 @@ public class GraphController {
     @GetMapping("/api/v1/articles")
     public ResponseEntity<Map<String, Object>> getArticles(
             @RequestParam(defaultValue = "7") int days,
-            @RequestParam(defaultValue = "100") int limit) {
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(required = false) String platform) {
 
         if (days < 1 || days > 365) {
             return ResponseEntity.badRequest()
@@ -167,7 +168,8 @@ public class GraphController {
                     .body(Map.of("error", "Query parameter 'limit' must be between 1 and 300."));
         }
 
-        List<ArticlePreview> articles = nodeRepository.findRecentArticles(days, limit);
+        String normalizedPlatform = (platform != null && !platform.isBlank()) ? platform.trim().toLowerCase() : null;
+        List<ArticlePreview> articles = nodeRepository.findRecentArticles(days, limit, normalizedPlatform);
 
         List<Map<String, Object>> articleList = articles.stream()
                 .map(a -> {
@@ -184,12 +186,13 @@ public class GraphController {
                 .toList();
 
         Map<String, Object> response = new LinkedHashMap<>();
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("days", days);
+        meta.put("count", articleList.size());
+        meta.put("platform", normalizedPlatform);
+        meta.put("generatedAt", Instant.now().toString());
         response.put("articles", articleList);
-        response.put("meta", Map.of(
-                "days", days,
-                "count", articleList.size(),
-                "generatedAt", Instant.now().toString()
-        ));
+        response.put("meta", meta);
 
         return ResponseEntity.ok(response);
     }

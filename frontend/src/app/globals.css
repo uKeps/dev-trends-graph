@@ -895,3 +895,81 @@ input:focus-visible,
   gap: 8px;
   align-items: center;
 }
+
+/* ---------- WATCHLIST (PR-D3) ---------- */
+.watchlist-link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  margin-left: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  letter-spacing: 0.04em;
+}
+.watchlist-link:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.card-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.watchlist-button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.watchlist-button:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.watchlist-button-sm {
+  width: 22px;
+  height: 22px;
+}
+.watchlist-button-md {
+  width: 28px;
+  height: 28px;
+}
+.watchlist-button.is-watched {
+  color: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+/* ---------- RISING (PR-D5) ---------- */
+.pill-rising {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pill-rising.active {
+  color: var(--bg);
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+}
+.rising-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius);
+  vertical-align: middle;
+}

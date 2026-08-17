@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import "@xyflow/react/dist/style.css";
 import { I18nContext, categoryLabel, useLang, useT, type Lang } from "@/lib/i18n";
 import { useUrlState, URL_PARSERS } from "@/lib/useUrlState";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import WatchlistButton from "@/components/WatchlistButton";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -81,6 +83,15 @@ interface ApiArticle {
 }
 
 const COLUMN_ORDER = ["Model", "Framework", "Tool", "Language", "Platform", "Concept"];
+
+const PLATFORMS = [
+  { id: "hackernews", label: "Hacker News" },
+  { id: "reddit", label: "Reddit" },
+  { id: "devto", label: "Dev.to" },
+  { id: "lobsters", label: "Lobsters" },
+  { id: "stackoverflow", label: "Stack Overflow" },
+  { id: "web", label: "Web" },
+] as const;
 
 const SOURCE_LABELS: Record<string, string> = {
   hackernews: "Hacker News",
@@ -326,6 +337,13 @@ export default function GraphView() {
   const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
     "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
   );
+  const [platform, setPlatform] = useUrlState<string>(
+    "platform", "",
+    (raw) => {
+      const lower = raw.toLowerCase();
+      return PLATFORMS.some((p) => p.id === lower) ? lower : "";
+    },
+  );
 
   // ── Column layout by category ───────────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
@@ -414,13 +432,16 @@ export default function GraphView() {
   }, []);
 
   // ── Fetches data from the API ─────────────────────────────────────────────
-  const fetchGraphData = useCallback(async (d: number) => {
+  const fetchGraphData = useCallback(async (d: number, p: string) => {
     setLoading(true);
     setError(null);
     try {
+      const articlesUrl = `${API_BASE_URL}/api/v1/articles?days=${d}&limit=300${
+        p ? `&platform=${encodeURIComponent(p)}` : ""
+      }`;
       const [graphRes, articlesRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/v1/graph?days=${d}&lang=${lang}`),
-        fetch(`${API_BASE_URL}/api/v1/articles?days=${d}&limit=300`),
+        fetch(articlesUrl),
       ]);
       if (!graphRes.ok) throw new Error(`API error ${graphRes.status}`);
 
@@ -442,8 +463,9 @@ export default function GraphView() {
   }, [layoutNodesByColumns, setNodes, lang]);
 
   useEffect(() => {
-    fetchGraphData(days);
-  }, [days, fetchGraphData]);
+    fetchGraphData(days, platform);
+  }, [days, platform, fetchGraphData]);
+
 
   // Recomputes nodes and edges on hover or when the web toggle changes
   useEffect(() => {
@@ -460,15 +482,41 @@ export default function GraphView() {
     setEdges(buildEdges(rawApiEdges, hoveredNodeId, showAllEdges));
   }, [hoveredNodeId, showAllEdges, rawApiEdges, buildEdges, setNodes, setEdges]);
 
-  // ── Filters (search, category, relevance) ─────────────────────────────────
+  // ── Rising detection ────────────────────────────────────────────────────
+  // A node counts as "rising" when it first appeared recently and has already
+  // accumulated enough traction. The window scales with the active period
+  // (3D window: 1-day recency, 30D window: 7-day recency) so the badge keeps
+  // its meaning on both short and long views.
+  const risingThresholdMs = useMemo(() => {
+    const recencyDays = Math.max(1, Math.floor(days / 4));
+    return Date.now() - recencyDays * 24 * 60 * 60 * 1000;
+  }, [days]);
+  const isRising = useCallback(
+    (node: ApiNode) => {
+      if (!node.firstSeen) return false;
+      const firstSeenMs = new Date(node.firstSeen).getTime();
+      return firstSeenMs >= risingThresholdMs && node.hypeScore >= 3.0;
+    },
+    [risingThresholdMs],
+  );
+
+  // ── Filters (search, category, relevance, rising) ────────────────────────
+  const [risingOnlyRaw, setRisingOnlyRaw] = useUrlState<string>(
+    "rising", "",
+    (raw) => (raw === "1" || raw === "true") ? "1" : "",
+    (v) => v,
+  );
+  const risingOnly = risingOnlyRaw === "1";
+
   const filteredApiNodes = useMemo(() => {
     return rawApiNodes.filter((node) => {
       const matchesSearch = searchQuery === "" || node.label.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCat = selectedCategory === "ALL" || node.category === selectedCategory;
       const matchesHype = node.hypeScore >= minHype;
-      return matchesSearch && matchesCat && matchesHype;
+      const matchesRising = !risingOnly || isRising(node);
+      return matchesSearch && matchesCat && matchesHype && matchesRising;
     });
-  }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
+  }, [rawApiNodes, searchQuery, selectedCategory, minHype, risingOnly, isRising]);
 
   // ── Grouping by category (curation panel of the "Columns" mode) ─────────
   const groupedByCategory = useMemo(() => {
@@ -553,6 +601,9 @@ export default function GraphView() {
               <h1>Reticle</h1>
               <p>{t.tagline}</p>
             </div>
+            <Link href="/watchlist" className="watchlist-link" aria-label={t.watchlist}>
+              {t.watchlist}
+            </Link>
           </div>
 
           <div className="header-controls">
@@ -635,6 +686,36 @@ export default function GraphView() {
             </button>
           ))}
         </div>
+
+        <div className="filter-group platform-group">
+          <span className="filter-label">{t.source}</span>
+          <button
+            className={`pill ${platform === "" ? "active" : ""}`}
+            onClick={() => setPlatform("")}
+          >
+            {t.all}
+          </button>
+          {PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              className={`pill ${platform === p.id ? "active" : ""}`}
+              onClick={() => setPlatform(p.id)}
+              aria-pressed={platform === p.id}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="filter-group rising-group">
+          <button
+            className={`pill pill-rising ${risingOnly ? "active" : ""}`}
+            onClick={() => setRisingOnlyRaw(risingOnly ? "" : "1")}
+            aria-pressed={risingOnly}
+          >
+            <span aria-hidden="true">{risingOnly ? "▲" : "△"}</span> {t.rising}
+          </button>
+        </div>
       </div>
 
       <div className="board-area">
@@ -668,12 +749,22 @@ export default function GraphView() {
                       <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
                         <div className="card-top">
                           <span className="tag">{categoryLabel(t, node.category)}</span>
-                          <div className="meter">
-                            <Bars val={node.hypeScore} />
-                            <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
+                          <div className="card-top-right">
+                            <WatchlistButton id={node.id} label={node.label} category={node.category} />
+                            <div className="meter">
+                              <Bars val={node.hypeScore} />
+                              <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
+                            </div>
                           </div>
                         </div>
-                        <div className="card-title">{node.label}</div>
+                        <div className="card-title">
+                          {node.label}
+                          {isRising(node) && (
+                            <span className="rising-badge" aria-label={t.rising}>
+                              ▲ {t.rising}
+                            </span>
+                          )}
+                        </div>
                         <div className="card-bottom">
                           <span className="card-meta">{node.mentionCount}+ {t.discussions}</span>
                           <span className="card-link">{t.study} →</span>
