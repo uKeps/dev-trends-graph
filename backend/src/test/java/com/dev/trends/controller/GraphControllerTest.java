@@ -126,4 +126,72 @@ class GraphControllerTest {
                 .andExpect(jsonPath("$.meta.days").value(7))
                 .andExpect(jsonPath("$.meta.limit").value(10));
     }
+
+    @Test
+    void categoriesEndpoint_shouldReturnCategoriesSortedByCount() throws Exception {
+        when(nodeRepository.findCategories()).thenReturn(List.of(
+                new NodeRepository.CategoryCount("Framework", 12L),
+                new NodeRepository.CategoryCount("Language", 5L)
+        ));
+
+        mockMvc.perform(get("/api/v1/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categories").isArray())
+                .andExpect(jsonPath("$.categories[0].category").value("Framework"))
+                .andExpect(jsonPath("$.categories[0].count").value(12))
+                .andExpect(jsonPath("$.totalCategories").value(2))
+                .andExpect(header().string("Cache-Control", "max-age=300"));
+    }
+
+    @Test
+    void historyEndpoint_shouldReturnDailySeriesForExistingNode() throws Exception {
+        UUID id = UUID.randomUUID();
+        Node node = new Node(id, "React", "Framework", 4.5,
+                java.time.OffsetDateTime.now(), java.time.OffsetDateTime.now(), 7);
+        when(nodeRepository.findById(id, "en")).thenReturn(Optional.of(node));
+
+        // Three days out of seven have mentions: 1, 0, 2.
+        // Cumulative at the end should be 3 -> hypeScore 1.0 + 0.5*3 = 2.5.
+        java.time.Instant today = java.time.Instant.now();
+        java.time.Instant d0 = today.minus(java.time.Duration.ofDays(6));
+        java.time.Instant d2 = today.minus(java.time.Duration.ofDays(4));
+        java.time.Instant d3 = today.minus(java.time.Duration.ofDays(3));
+        when(nodeRepository.findHistoryById(id, 7)).thenReturn(List.of(
+                new NodeRepository.HistoryPoint(d0, 1L, 1.5),
+                new NodeRepository.HistoryPoint(today.minus(java.time.Duration.ofDays(5)), 0L, 1.5),
+                new NodeRepository.HistoryPoint(d2, 2L, 2.5),
+                new NodeRepository.HistoryPoint(d3, 0L, 2.5),
+                new NodeRepository.HistoryPoint(today.minus(java.time.Duration.ofDays(2)), 0L, 2.5),
+                new NodeRepository.HistoryPoint(today.minus(java.time.Duration.ofDays(1)), 0L, 2.5),
+                new NodeRepository.HistoryPoint(today, 0L, 2.5)
+        ));
+
+        mockMvc.perform(get("/api/v1/nodes/" + id + "/history").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodeId").value(id.toString()))
+                .andExpect(jsonPath("$.days").value(7))
+                .andExpect(jsonPath("$.points").isArray())
+                .andExpect(jsonPath("$.points.length()").value(7))
+                .andExpect(jsonPath("$.points[0].mentionCount").value(1))
+                .andExpect(jsonPath("$.points[2].mentionCount").value(2))
+                .andExpect(header().string("Cache-Control", "max-age=300"));
+    }
+
+    @Test
+    void historyEndpoint_shouldReturn404WhenNodeDoesNotExist() throws Exception {
+        UUID id = UUID.randomUUID();
+        when(nodeRepository.findById(id, "en")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/nodes/" + id + "/history"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void historyEndpoint_shouldReturn400ForOutOfRangeDays() throws Exception {
+        mockMvc.perform(get("/api/v1/nodes/" + UUID.randomUUID() + "/history").param("days", "0"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(get("/api/v1/nodes/" + UUID.randomUUID() + "/history").param("days", "365"))
+                .andExpect(status().isBadRequest());
+    }
 }

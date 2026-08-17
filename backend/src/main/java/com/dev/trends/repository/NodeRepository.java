@@ -10,11 +10,14 @@ import org.springframework.stereotype.Repository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,6 +78,8 @@ public class NodeRepository {
         try {
             ensureSourceColumnsExist();
             ensureArticleColumnsExist();
+            ensureLastSeenIndex();
+            pruneDeadIndexes();
         } catch (Exception e) {
             // Tables may not exist yet on the very first boot; ignore.
         }
@@ -90,6 +95,29 @@ public class NodeRepository {
         } catch (Exception e) {
             // Table may not exist yet on the very first boot; ignore.
         }
+    }
+
+    /**
+     * Creates the {@code idx_nodes_last_seen} index used by every recent-activity
+     * query (graph, trends, articles, history). Idempotent. The old dataset had no
+     * such index even though {@code last_seen} is the dominant filter.
+     */
+    private void ensureLastSeenIndex() {
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_nodes_last_seen ON nodes (last_seen DESC);");
+    }
+
+    /**
+     * Drops indexes and views that the current codebase never queries. Verified
+     * unused via EXPLAIN: no plan references {@code idx_posts_created_at} (the
+     * news-feed query uses {@code COALESCE(published_at, created_at)} and orders
+     * by published_at), {@code idx_nodes_first_seen}, {@code idx_edges_created_at},
+     * or the {@code v_graph_data} view. Keeping them costs writes.
+     */
+    private void pruneDeadIndexes() {
+        jdbc.execute("DROP INDEX IF EXISTS idx_posts_created_at;");
+        jdbc.execute("DROP INDEX IF EXISTS idx_nodes_first_seen;");
+        jdbc.execute("DROP INDEX IF EXISTS idx_edges_created_at;");
+        jdbc.execute("DROP VIEW IF EXISTS v_graph_data;");
     }
 
     private static final RowMapper<Node> NODE_ROW_MAPPER = (rs, rowNum) -> new Node(
@@ -369,4 +397,87 @@ public class NodeRepository {
                 rs.getString("node_category")
         ), days, limit);
     }
+
+    /**
+     * Returns the distinct {@code category} values currently present in {@code nodes}
+     * along with how many nodes fall into each. Ordered by descending count so the
+     * dominant categories surface first. Drives the {@code GET /api/v1/categories}
+     * endpoint; the controller adds {@code Cache-Control: max-age=300} because this
+     * data only shifts after a new ingestion round.
+     */
+    public List<CategoryCount> findCategories() {
+        String sql = """
+                SELECT category, COUNT(*) AS count
+                FROM nodes
+                WHERE category IS NOT NULL
+                GROUP BY category
+                ORDER BY count DESC, category ASC
+                """;
+        return jdbc.query(sql, (rs, rowNum) -> new CategoryCount(
+                rs.getString("category"),
+                rs.getLong("count")
+        ));
+    }
+
+    /**
+     * Daily mention history for a single node over the last {@code days} days,
+     * sourced from the {@code posts} table (which carries {@code published_at} /
+     * {@code created_at} per article). Days with no mentions come back as
+     * {@code mentionCount=0} so the caller gets a continuous series for charting.
+     *
+     * <p>{@code hypeScore} at each point is approximated as
+     * {@code 1.0 + 0.5 * cumulativeMentionsToThatDay}, matching the
+     * {@code +0.5} increment in {@code upsertNode} so the rightmost point lines
+     * up with the current {@code nodes.hype_score} (modulo pre-existing history
+     * before the window started — that's fine for the frontend sparkline).
+     *
+     * <p>Backed by {@code idx_posts_published_at} for the WHERE clause; missing
+     * days are filled in Java so we don't depend on {@code generate_series}
+     * (which isn't available in H2 and the test profile would need extra wiring).
+     */
+    public List<HistoryPoint> findHistoryById(UUID nodeId, int days) {
+        String sql = """
+                SELECT date_trunc('day', COALESCE(p.published_at, p.created_at)) AS day,
+                       COUNT(*) AS mentions
+                FROM posts p
+                WHERE p.node_id = ?
+                  AND COALESCE(p.published_at, p.created_at) >= NOW() - (? || ' days')::INTERVAL
+                GROUP BY day
+                """;
+        Map<LocalDate, Long> dailyMentions = new HashMap<>();
+        jdbc.query(sql, rs -> {
+            OffsetDateTime day = rs.getObject("day", OffsetDateTime.class);
+            long mentions = rs.getLong("mentions");
+            if (day != null) {
+                dailyMentions.put(day.toLocalDate(), mentions);
+            }
+        }, nodeId, days);
+
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        long cumulative = 0;
+        List<HistoryPoint> points = new ArrayList<>(days);
+        // Walk oldest -> newest so the cumulative sum lines up with the curve the
+        // sparkline renders.
+        for (int offset = days - 1; offset >= 0; offset--) {
+            LocalDate day = today.minusDays(offset);
+            long mentions = dailyMentions.getOrDefault(day, 0L);
+            cumulative += mentions;
+            double hypeScore = 1.0 + 0.5 * cumulative;
+            points.add(new HistoryPoint(
+                    day.atStartOfDay(ZoneOffset.UTC).toInstant(),
+                    mentions,
+                    hypeScore
+            ));
+        }
+        return points;
+    }
+
+    /** Aggregate count for {@link NodeRepository#findCategories()}. */
+    public record CategoryCount(String category, long count) {}
+
+    /**
+     * One day's data point in {@link NodeRepository#findHistoryById(UUID, int)}.
+     * {@code ts} is midnight UTC of that day.
+     */
+    public record HistoryPoint(Instant ts, long mentionCount, double hypeScore) {}
 }

@@ -426,4 +426,91 @@ public class GraphController {
         body.put("sourcePlatform", sourcePlatform == null ? "" : sourcePlatform);
         return ResponseEntity.ok(body);
     }
+
+    // =========================================================
+    // CATEGORIES — distinct node categories with counts.
+    // =========================================================
+
+    /**
+     * GET /api/v1/categories
+     * Returns every distinct {@code category} value currently used by nodes, with
+     * the count of nodes in each. Sorted by descending count so the dominant
+     * categories surface first.
+     *
+     * <p>Returned with a {@code Cache-Control: max-age=300} header because the data
+     * only shifts after a new ingestion round (every 6 hours by default). The
+     * frontend can therefore cache the response client-side for 5 minutes.
+     */
+    @GetMapping("/api/v1/categories")
+    public ResponseEntity<Map<String, Object>> getCategories() {
+        var rows = nodeRepository.findCategories();
+        List<Map<String, Object>> categories = rows.stream()
+                .map(c -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("category", c.category());
+                    entry.put("count", c.count());
+                    return entry;
+                })
+                .toList();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("categories", categories);
+        body.put("totalCategories", categories.size());
+        body.put("generatedAt", Instant.now().toString());
+        return ResponseEntity.ok()
+                .header("Cache-Control", "max-age=300")
+                .body(body);
+    }
+
+    // =========================================================
+    // NODE HISTORY — daily mention / hype series for a node.
+    // =========================================================
+
+    /**
+     * GET /api/v1/nodes/{id}/history?days=7
+     * Returns one data point per day for the last {@code days} days (1-90) for the
+     * given node. Each point carries the day's mention count and an approximated
+     * {@code hypeScore} (1.0 + 0.5 * cumulative mentions through that day, matching
+     * the {@code +0.5} increment in {@code upsertNode}). Days with no mentions
+     * come back as {@code mentionCount=0} so the series is continuous for charting.
+     *
+     * <p>404 when the node does not exist; 400 for out-of-range {@code days}.
+     */
+    @GetMapping("/api/v1/nodes/{id}/history")
+    public ResponseEntity<Map<String, Object>> getNodeHistory(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "7") int days) {
+
+        if (days < 1 || days > 90) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Query parameter 'days' must be between 1 and 90."));
+        }
+
+        // 404 vs 200-with-empty: if the node doesn't exist, don't return a flat
+        // zero series — that's indistinguishable from "real node, quiet window",
+        // which the frontend will mis-interpret.
+        if (nodeRepository.findById(id, "en").isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        List<NodeRepository.HistoryPoint> points = nodeRepository.findHistoryById(id, days);
+
+        List<Map<String, Object>> series = points.stream()
+                .map(p -> {
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    entry.put("ts", p.ts().toString());
+                    entry.put("mentionCount", p.mentionCount());
+                    entry.put("hypeScore", p.hypeScore());
+                    return entry;
+                })
+                .toList();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("nodeId", id.toString());
+        body.put("days", days);
+        body.put("points", series);
+        body.put("generatedAt", Instant.now().toString());
+        return ResponseEntity.ok()
+                .header("Cache-Control", "max-age=300")
+                .body(body);
+    }
 }
