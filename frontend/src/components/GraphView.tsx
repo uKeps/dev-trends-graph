@@ -25,6 +25,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { I18nContext, categoryLabel, useLang, useT, type Lang } from "@/lib/i18n";
+import { useUrlState, URL_PARSERS } from "@/lib/useUrlState";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -171,6 +172,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export default function GraphView() {
   const { t, lang, changeLang } = useLang();
+  const [, setUrlLang] = useUrlState<Lang | null>(
+    "lang", null, URL_PARSERS.oneOf("en", "pt")
+  );
+  const handleLangChange = useCallback((next: Lang) => {
+    changeLang(next);
+    setUrlLang(next);
+  }, [changeLang, setUrlLang]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [rawApiNodes, setRawApiNodes] = useState<ApiNode[]>([]);
@@ -179,7 +187,14 @@ export default function GraphView() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useUrlState<number>(
+    "days", 7,
+    (raw) => {
+      const n = Number.parseInt(raw, 10);
+      return [3, 7, 14, 30].includes(n) ? n : null;
+    },
+    String
+  );
   const [selectedNode, setSelectedNode] = useState<ApiNode | null>(null);
   const [summaryLoading, setSummaryLoading] = useState<boolean>(false);
   const [summaryError, setSummaryError] = useState<boolean>(false);
@@ -243,9 +258,21 @@ export default function GraphView() {
 
   // UI filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
-  const [minHype, setMinHype] = useState<number>(1.0);
-  const [viewMode, setViewMode] = useState<"columns" | "cards" | "news">("columns");
+  const [selectedCategory, setSelectedCategory] = useUrlState<string>(
+    "cat", "ALL",
+    URL_PARSERS.oneOf("ALL", "Model", "Framework", "Tool", "Language", "Platform", "Concept")
+  );
+  const [minHype, setMinHype] = useUrlState<number>(
+    "hype", 1.0,
+    (raw) => {
+      const n = Number.parseFloat(raw);
+      return [1.0, 1.5, 2.0].includes(n) ? n : null;
+    },
+    (v) => v.toFixed(1)
+  );
+  const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
+    "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
+  );
 
   // ── Column layout by category ───────────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
@@ -515,7 +542,7 @@ export default function GraphView() {
 
             <div className="segmented">
               {(["en", "pt"] as Lang[]).map((l) => (
-                <button key={l} className={lang === l ? "active" : ""} onClick={() => changeLang(l)}>{l.toUpperCase()}</button>
+                <button key={l} className={lang === l ? "active" : ""} onClick={() => handleLangChange(l)}>{l.toUpperCase()}</button>
               ))}
             </div>
           </div>
