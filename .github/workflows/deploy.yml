@@ -69,7 +69,7 @@ jobs:
       # 6. Validação real do Dockerfile (Dry-Run Build idêntico ao Render)
       # Garante que a imagem compila 100% sem erros de código/dep antes de acionar produção
       - name: 🐳 Validate Docker build (Render dry-run)
-        run: docker build -t dev-trends-backend:test backend/
+        run: docker build -t dev-trends-backend:test .
 
       # 7. Aciona o webhook de deploy do Render (APENAS se os testes e o Docker build passarem)
       # Configure RENDER_DEPLOY_HOOK_URL nos Secrets do repositório GitHub:
@@ -140,16 +140,21 @@ jobs:
         run: npm run build
 
       # 6. Deploy na Vercel via CLI Action (Apenas se o VERCEL_TOKEN estiver configurado)
-      # Nota: A Vercel já faz o deploy automático via integração nativa do GitHub!
-      - name: 🚀 Deploy to Vercel
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && env.VERCEL_TOKEN != ''
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ env.VERCEL_TOKEN }}
-          vercel-org-id: ${{ env.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ env.VERCEL_PROJECT_ID }}
-          working-directory: ./frontend
-          vercel-args: "--prod"
+      # O amondnet/vercel-action precisa de um link local (.vercel/project.json) ou
+      # que ele mesmo faça o link. Sem isso ele falha em 'Could not retrieve Project
+      # Settings'. Como o comentário abaixo já avisava, a integração nativa do GitHub
+      # na Vercel cuida do deploy — manter os dois só causa corrida. Se a integração
+      # nativa for desligada no futuro, descomentar este passo e adicionar o arquivo
+      # `.vercel/project.json` ao repo.
+      # - name: 🚀 Deploy to Vercel
+      #   if: github.ref == 'refs/heads/main' && github.event_name == 'push' && env.VERCEL_TOKEN != ''
+      #   uses: amondnet/vercel-action@v25
+      #   with:
+      #     vercel-token: ${{ env.VERCEL_TOKEN }}
+      #     vercel-org-id: ${{ env.VERCEL_ORG_ID }}
+      #     vercel-project-id: ${{ env.VERCEL_PROJECT_ID }}
+      #     working-directory: ./frontend
+      #     vercel-args: "--prod"
 
   # ===========================================================
   # JOB 3: Notificação de status (opcional, mas útil)
