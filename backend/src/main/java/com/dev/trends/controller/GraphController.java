@@ -1,11 +1,11 @@
 package com.dev.trends.controller;
 
 import com.dev.trends.model.ArticlePreview;
-import com.dev.trends.model.Edge;
 import com.dev.trends.model.Node;
 import com.dev.trends.repository.EdgeRepository;
 import com.dev.trends.repository.NodeRepository;
 import com.dev.trends.service.GraphExtractionService;
+import com.dev.trends.service.GraphQueryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +30,7 @@ public class GraphController {
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
     private final GraphExtractionService graphExtractionService;
+    private final GraphQueryService graphQueryService;
     private final JdbcTemplate jdbc;
 
     /**
@@ -55,10 +56,12 @@ public class GraphController {
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
             GraphExtractionService graphExtractionService,
+            GraphQueryService graphQueryService,
             JdbcTemplate jdbc) {
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.graphExtractionService = graphExtractionService;
+        this.graphQueryService = graphQueryService;
         this.jdbc = jdbc;
     }
 
@@ -127,54 +130,9 @@ public class GraphController {
         }
 
         try {
-            List<Node> nodes = nodeRepository.findNodesSince(days, normalizeLang(lang));
-            List<Edge> edges = edgeRepository.findEdgesSince(days);
-
-            // Shape nodes for React Flow.
-            List<Map<String, Object>> nodeList = nodes.stream()
-                    .map(n -> {
-                        Map<String, Object> node = new LinkedHashMap<>();
-                        node.put("id", n.getId().toString());
-                        node.put("label", n.getLabel());
-                        node.put("category", n.getCategory());
-                        node.put("hypeScore", n.getHypeScore());
-                        node.put("mentionCount", n.getMentionCount());
-                        node.put("summary", n.getSummary());
-                        node.put("sourceUrl", n.getSourceUrl());
-                        node.put("sourceTitle", n.getSourceTitle());
-                        node.put("sourcePlatform", n.getSourcePlatform());
-                        node.put("firstSeen", n.getFirstSeen() != null ? n.getFirstSeen().toString() : null);
-                        node.put("lastSeen", n.getLastSeen() != null ? n.getLastSeen().toString() : null);
-                        return node;
-                    })
-                    .toList();
-
-            // Shape edges for React Flow.
-            List<Map<String, Object>> edgeList = edges.stream()
-                    .map(e -> {
-                        Map<String, Object> edge = new LinkedHashMap<>();
-                        edge.put("id", e.getId().toString());
-                        edge.put("source", e.getSourceNodeId().toString());
-                        edge.put("target", e.getTargetNodeId().toString());
-                        edge.put("sourceLabel", e.getSourceLabel());
-                        edge.put("targetLabel", e.getTargetLabel());
-                        edge.put("label", e.getRelationType());
-                        edge.put("relationType", e.getRelationType());
-                        edge.put("weight", e.getWeight());
-                        return edge;
-                    })
-                    .toList();
-
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("nodes", nodeList);
-            response.put("edges", edgeList);
-            response.put("meta", Map.of(
-                    "days", days,
-                    "nodeCount", nodeList.size(),
-                    "edgeCount", edgeList.size(),
-                    "generatedAt", Instant.now().toString()
-            ));
-
+            // The cache is on the service layer; validation here ensures bad
+            // requests never poison the cache.
+            Map<String, Object> response = graphQueryService.loadGraph(days, normalizeLang(lang));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
@@ -443,15 +401,7 @@ public class GraphController {
      */
     @GetMapping("/api/v1/categories")
     public ResponseEntity<Map<String, Object>> getCategories() {
-        var rows = nodeRepository.findCategories();
-        List<Map<String, Object>> categories = rows.stream()
-                .map(c -> {
-                    Map<String, Object> entry = new LinkedHashMap<>();
-                    entry.put("category", c.category());
-                    entry.put("count", c.count());
-                    return entry;
-                })
-                .toList();
+        List<Map<String, Object>> categories = graphQueryService.loadCategories();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("categories", categories);
         body.put("totalCategories", categories.size());
