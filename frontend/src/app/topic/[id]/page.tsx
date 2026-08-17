@@ -53,7 +53,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title,
     description,
     keywords: [node.label, node.category, "trending", "dev trends"],
-    alternates: { canonical: `${SITE_URL}/topic/${params.id}` },
+    alternates: {
+      canonical: `${SITE_URL}/topic/${params.id}`,
+      types: {
+        "application/rss+xml": `${SITE_URL}/feed/topic/${params.id}`,
+      },
+    },
     openGraph: {
       title,
       description,
