@@ -2,13 +2,10 @@ package com.dev.trends.repository;
 
 import com.dev.trends.model.ArticlePreview;
 import com.dev.trends.model.Node;
-import jakarta.annotation.PostConstruct;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -17,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,67 +55,6 @@ public class NodeRepository {
         this.jdbc = jdbc;
     }
 
-    /**
-     * Applies idempotent schema migrations once at application startup.
-     *
-     * <p>Previously, {@code ensureSourceColumnsExist()} and {@code ensureArticleColumnsExist()}
-     * ran on every call to {@code findNodesSince} / {@code findById} /
-     * {@code insertArticle} / {@code findRecentArticles}, firing ~10 round-trips to
-     * Postgres per graph request. Since the schema doesn't change at runtime, moving
-     * everything to startup reduces database traffic without changing behavior.
-     *
-     * <p>Also clears the generic summary that the old pipeline version stamped on
-     * orphan nodes (referenced by a single edge) without a source — without that
-     * "cached" summary the frontend re-triggers the on-demand source lookup for
-     * those nodes.
-     */
-    @PostConstruct
-    public void applySchemaMigrations() {
-        try {
-            ensureSourceColumnsExist();
-            ensureArticleColumnsExist();
-            ensureLastSeenIndex();
-            pruneDeadIndexes();
-        } catch (Exception e) {
-            // Tables may not exist yet on the very first boot; ignore.
-        }
-        try {
-            int updated = jdbc.update(
-                    "UPDATE nodes SET summary = NULL " +
-                            "WHERE summary = 'Conceito em destaque no ecossistema.' " +  // historical PT summary literal; cleared on first boot.
-                            "AND (source_url IS NULL OR source_url = '')");
-            if (updated > 0) {
-                org.slf4j.LoggerFactory.getLogger(NodeRepository.class)
-                        .info("Cleared the generic summary of {} source-less node(s) for reprocessing.", updated);
-            }
-        } catch (Exception e) {
-            // Table may not exist yet on the very first boot; ignore.
-        }
-    }
-
-    /**
-     * Creates the {@code idx_nodes_last_seen} index used by every recent-activity
-     * query (graph, trends, articles, history). Idempotent. The old dataset had no
-     * such index even though {@code last_seen} is the dominant filter.
-     */
-    private void ensureLastSeenIndex() {
-        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_nodes_last_seen ON nodes (last_seen DESC);");
-    }
-
-    /**
-     * Drops indexes and views that the current codebase never queries. Verified
-     * unused via EXPLAIN: no plan references {@code idx_posts_created_at} (the
-     * news-feed query uses {@code COALESCE(published_at, created_at)} and orders
-     * by published_at), {@code idx_nodes_first_seen}, {@code idx_edges_created_at},
-     * or the {@code v_graph_data} view. Keeping them costs writes.
-     */
-    private void pruneDeadIndexes() {
-        jdbc.execute("DROP INDEX IF EXISTS idx_posts_created_at;");
-        jdbc.execute("DROP INDEX IF EXISTS idx_nodes_first_seen;");
-        jdbc.execute("DROP INDEX IF EXISTS idx_edges_created_at;");
-        jdbc.execute("DROP VIEW IF EXISTS v_graph_data;");
-    }
-
     private static final RowMapper<Node> NODE_ROW_MAPPER = (rs, rowNum) -> new Node(
             UUID.fromString(rs.getString("id")),
             rs.getString("label"),
@@ -129,22 +64,6 @@ public class NodeRepository {
             rs.getObject("last_seen", OffsetDateTime.class),
             rs.getInt("mention_count")
     );
-
-    /**
-     * Ensures the summary, source_url and source_title columns exist on the nodes
-     * table. Called once at startup via {@link #applySchemaMigrations()}.
-     */
-    private void ensureSourceColumnsExist() {
-        try {
-            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary TEXT;");
-            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS summary_en TEXT;");
-            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_url TEXT;");
-            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_title TEXT;");
-            jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_platform VARCHAR(50);");
-        } catch (Exception e) {
-            // Ignore if they already exist.
-        }
-    }
 
     /**
      * Summary column for the given language. "summary" is the legacy Portuguese
@@ -330,22 +249,6 @@ public class NodeRepository {
     public List<Node> findAll() {
         String sql = "SELECT id, label, category, hype_score, first_seen, last_seen, mention_count FROM nodes ORDER BY hype_score DESC";
         return jdbc.query(sql, NODE_ROW_MAPPER);
-    }
-
-    /**
-     * Ensures the node_id column (linking article -> topic) exists on the posts
-     * table. Called once at startup via {@link #applySchemaMigrations()}.
-     */
-    private void ensureArticleColumnsExist() {
-        try {
-            jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE CASCADE;");
-            jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url ON posts (node_id, url);");
-            // published_at is the actual publication date at the source (HN/Dev.to/Lobsters/SO).
-            // Without it the feed showed articles collected "today" but published years ago.
-            jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;");
-        } catch (Exception e) {
-            // Ignore if they already exist.
-        }
     }
 
     /**

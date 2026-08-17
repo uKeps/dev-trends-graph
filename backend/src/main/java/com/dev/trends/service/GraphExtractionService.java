@@ -7,6 +7,9 @@ import com.dev.trends.repository.EdgeRepository;
 import com.dev.trends.repository.NodeRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -73,6 +76,7 @@ public class GraphExtractionService {
     private final ObjectMapper objectMapper;
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
     /**
      * Used to scope transactions ONLY around persistence (persistNodes/persistEdges).
      * The full pipeline does not run inside a transaction: the ~185 HTTP calls and the
@@ -96,15 +100,15 @@ public class GraphExtractionService {
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
             ObjectMapper objectMapper,
-            PlatformTransactionManager transactionManager) {
+            HttpClient httpClient,
+            PlatformTransactionManager transactionManager,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.objectMapper = objectMapper;
+        this.httpClient = httpClient;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
     }
 
     /** Artigo coletado de qualquer plataforma. */
@@ -162,6 +166,10 @@ public class GraphExtractionService {
     }
 
     private List<Article> fetchHackerNewsArticles() {
+        return runWithBreaker("hackernews", List.of(), this::doFetchHackerNewsArticles);
+    }
+
+    private List<Article> doFetchHackerNewsArticles() {
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(HN_TOP_STORIES_URL))
@@ -233,6 +241,10 @@ public class GraphExtractionService {
     }
 
     private List<Article> fetchDevToArticles() {
+        return runWithBreaker("devto", List.of(), this::doFetchDevToArticles);
+    }
+
+    private List<Article> doFetchDevToArticles() {
         List<Article> articles = new ArrayList<>();
         for (String tag : DEVTO_TAGS) {
             try {
@@ -270,6 +282,10 @@ public class GraphExtractionService {
     }
 
     private List<Article> fetchLobstersArticles() {
+        return runWithBreaker("lobsters", List.of(), this::doFetchLobstersArticles);
+    }
+
+    private List<Article> doFetchLobstersArticles() {
         List<Article> articles = new ArrayList<>();
         try {
             HttpRequest req = HttpRequest.newBuilder()
@@ -306,6 +322,10 @@ public class GraphExtractionService {
     }
 
     private List<Article> fetchStackOverflowArticles() {
+        return runWithBreaker("stackoverflow", List.of(), this::doFetchStackOverflowArticles);
+    }
+
+    private List<Article> doFetchStackOverflowArticles() {
         List<Article> articles = new ArrayList<>();
         for (String tag : STACKOVERFLOW_TAGS) {
             try {
@@ -389,6 +409,11 @@ public class GraphExtractionService {
      * so concurrent requests don't clobber each other.
      */
     private LlmCallResult requestLlmContent(String model, String systemPrompt, String userMessage) {
+        return runWithBreaker("llm", new LlmCallResult(null, "LLM breaker open: " + model),
+                () -> doRequestLlmContent(model, systemPrompt, userMessage));
+    }
+
+    private LlmCallResult doRequestLlmContent(String model, String systemPrompt, String userMessage) {
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", model,
@@ -582,6 +607,10 @@ public class GraphExtractionService {
      * clicks — it doesn't depend on the topic happening to appear in an ingestion batch.
      */
     public Article findLiveSource(String label) {
+        return runWithBreaker("hackernews", (Article) null, () -> doFindLiveSource(label));
+    }
+
+    private Article doFindLiveSource(String label) {
         try {
             String query = URLEncoder.encode(label, StandardCharsets.UTF_8);
             // hitsPerPage > 1 because Algolia's relevance isn't whole-word-aware: a search
@@ -898,5 +927,33 @@ public class GraphExtractionService {
         UUID nodeId = nodeRepository.upsertNode(label, "Concept", null, sourceUrl, sourceTitle, sourcePlatform);
         persistNodeArticles(nodeId, label, articles);
         return nodeId;
+    }
+
+    // =========================================================
+    // Circuit breaker helper.
+    //
+    // Programmatic API used instead of @CircuitBreaker annotations because
+    // the fetch methods are private and called from the same class — Spring's
+    // AOP proxy does not intercept internal calls, so annotations on those
+    // methods would be silently ignored.
+    // =========================================================
+
+    /**
+     * Runs the given supplier through the named circuit breaker. Any exception
+     * (network, timeout, parse) OR a CallNotPermittedException from an open
+     * breaker resolves to the supplied fallback so the pipeline degrades
+     * gracefully instead of taking the whole run down.
+     */
+    private <T> T runWithBreaker(String name, T fallback, java.util.function.Supplier<T> action) {
+        CircuitBreaker breaker = circuitBreakerRegistry.circuitBreaker(name);
+        try {
+            return breaker.executeSupplier(action);
+        } catch (CallNotPermittedException e) {
+            log.warn("{} breaker open. Falling back.", name);
+            return fallback;
+        } catch (Exception e) {
+            log.warn("{} call failed: {}", name, e.getMessage());
+            return fallback;
+        }
     }
 }

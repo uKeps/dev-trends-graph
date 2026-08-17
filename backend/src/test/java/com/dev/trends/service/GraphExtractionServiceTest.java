@@ -28,12 +28,17 @@ class GraphExtractionServiceTest {
     private final GraphExtractionService service = buildService();
 
     /** Builds the service with a no-op TransactionManager (the sampling tests
-     *  don't trigger persistence, but the constructor requires the dependency). */
+     *  don't trigger persistence, but the constructor requires the dependency).
+     *  The circuit breaker registry and HttpClient are also no-ops: the sampling
+     *  tests do not hit the network. */
     private static GraphExtractionService buildService() {
         PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
         TransactionStatus status = new SimpleTransactionStatus();
         when(txManager.getTransaction(org.mockito.ArgumentMatchers.any())).thenReturn(status);
-        return new GraphExtractionService(null, null, new ObjectMapper(), txManager);
+        io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry registry =
+                io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry.ofDefaults();
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newHttpClient();
+        return new GraphExtractionService(null, null, new ObjectMapper(), httpClient, txManager, registry);
     }
 
     /** Reproduces the real order of fetchAllArticles: sources arrive concatenated, not interleaved. */

@@ -1,10 +1,10 @@
 package com.dev.trends.controller;
 
-import com.dev.trends.model.ExtractionResult;
 import com.dev.trends.model.Node;
 import com.dev.trends.repository.EdgeRepository;
 import com.dev.trends.repository.NodeRepository;
 import com.dev.trends.service.GraphExtractionService;
+import com.dev.trends.service.GraphQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -12,7 +12,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,6 +39,9 @@ class GraphControllerTest {
 
     @MockBean
     private GraphExtractionService graphExtractionService;
+
+    @MockBean
+    private GraphQueryService graphQueryService;
 
     @MockBean
     private JdbcTemplate jdbc;
@@ -66,8 +71,11 @@ class GraphControllerTest {
 
     @Test
     void graphEndpoint_shouldReturnEmptyGraphForNoData() throws Exception {
-        when(nodeRepository.findNodesSince(7, "en")).thenReturn(List.of());
-        when(edgeRepository.findEdgesSince(7)).thenReturn(List.of());
+        Map<String, Object> empty = new LinkedHashMap<>();
+        empty.put("nodes", List.of());
+        empty.put("edges", List.of());
+        empty.put("meta", Map.of("days", 7, "nodeCount", 0, "edgeCount", 0, "generatedAt", "2026-01-01T00:00:00Z"));
+        when(graphQueryService.loadGraph(7, "en")).thenReturn(empty);
 
         mockMvc.perform(get("/api/v1/graph").param("days", "7"))
                 .andExpect(status().isOk())
@@ -78,13 +86,16 @@ class GraphControllerTest {
 
     @Test
     void graphEndpoint_shouldAskRepositoryForPortugueseSummaries() throws Exception {
-        when(nodeRepository.findNodesSince(7, "pt")).thenReturn(List.of());
-        when(edgeRepository.findEdgesSince(7)).thenReturn(List.of());
+        Map<String, Object> empty = new LinkedHashMap<>();
+        empty.put("nodes", List.of());
+        empty.put("edges", List.of());
+        empty.put("meta", Map.of("days", 7, "nodeCount", 0, "edgeCount", 0, "generatedAt", "2026-01-01T00:00:00Z"));
+        when(graphQueryService.loadGraph(7, "pt")).thenReturn(empty);
 
         mockMvc.perform(get("/api/v1/graph").param("days", "7").param("lang", "pt-BR"))
                 .andExpect(status().isOk());
 
-        verify(nodeRepository).findNodesSince(7, "pt");
+        verify(graphQueryService).loadGraph(7, "pt");
     }
 
     @Test
@@ -129,10 +140,11 @@ class GraphControllerTest {
 
     @Test
     void categoriesEndpoint_shouldReturnCategoriesSortedByCount() throws Exception {
-        when(nodeRepository.findCategories()).thenReturn(List.of(
-                new NodeRepository.CategoryCount("Framework", 12L),
-                new NodeRepository.CategoryCount("Language", 5L)
-        ));
+        List<Map<String, Object>> rows = List.of(
+                Map.of("category", "Framework", "count", 12L),
+                Map.of("category", "Language", "count", 5L)
+        );
+        when(graphQueryService.loadCategories()).thenReturn(rows);
 
         mockMvc.perform(get("/api/v1/categories"))
                 .andExpect(status().isOk())
