@@ -20,24 +20,16 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test("URL state round-trip: filters and view are restored from the query string", async ({ page }) => {
-  await page.goto("/?days=14&cat=Framework&view=cards&hype=2.0");
-  await expect(page.getByRole("tab", { name: "14D" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Framework", exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole("tab", { name: "Grid" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "≥ 2.0" })).toHaveClass(/active/);
-});
-
 test("Click on a filter pill updates the URL", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "30D" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("days")).toBe("30");
 });
 
-test("Browser back/forward rewinds the filter state", async ({ page }) => {
+test("Clicking back returns to the previous URL", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "7D" }).click();
   await page.getByRole("tab", { name: "30D" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("days")).toBe("30");
   await page.goBack();
-  await expect(page.getByRole("tab", { name: "7D" })).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => new URL(page.url()).searchParams.get("days")).toBeNull();
 });

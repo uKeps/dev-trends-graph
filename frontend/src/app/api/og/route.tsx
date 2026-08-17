@@ -2,8 +2,6 @@ import { ImageResponse } from "next/og";
 import { fetchNode, fetchNodeSummary } from "@/lib/api";
 
 export const runtime = "nodejs";
-export const contentType = "image/png";
-export const size = { width: 1200, height: 630 };
 
 /**
  * Dynamic Open Graph image for the topic page. Reads the same API the page
@@ -14,8 +12,9 @@ export const size = { width: 1200, height: 630 };
  * card when the id is unknown so share previews never show a broken
  * image (just a 404 page).
  */
-export default async function OgImage({ searchParams }: { searchParams: { nodeId?: string } }) {
-  const nodeId = searchParams.nodeId;
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const nodeId = searchParams.get("nodeId") ?? undefined;
   let label = "Topic not found";
   let category = "Reticle";
   let hype = "—";
@@ -122,6 +121,6 @@ export default async function OgImage({ searchParams }: { searchParams: { nodeId
         </div>
       </div>
     ),
-    { ...size },
+    { width: 1200, height: 630 },
   );
 }

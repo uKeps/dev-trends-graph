@@ -185,8 +185,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 export default function GraphView() {
   const { t, lang, changeLang } = useLang();
-  const [, setUrlLang] = useUrlState<Lang | null>(
-    "lang", null, URL_PARSERS.oneOf("en", "pt")
+  const [, setUrlLang] = useUrlState<string>(
+    "lang", "",
+    URL_PARSERS.oneOf("en", "pt"),
+    (v) => v,
   );
   const handleLangChange = useCallback((next: Lang) => {
     changeLang(next);
@@ -269,6 +271,36 @@ export default function GraphView() {
     setSelectedNode(null);
   }, [lang]);
 
+  // UI filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const modalPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap<HTMLDivElement>(selectedNode != null, {
+    initialFocus: () => modalPanelRef.current?.querySelector<HTMLElement>(".modal-close") ?? null,
+  });
+  const [selectedCategory, setSelectedCategory] = useUrlState<string>(
+    "cat", "ALL",
+    URL_PARSERS.oneOf("ALL", "Model", "Framework", "Tool", "Language", "Platform", "Concept")
+  );
+  const [minHype, setMinHype] = useUrlState<number>(
+    "hype", 1.0,
+    (raw) => {
+      const n = Number.parseFloat(raw);
+      return [1.0, 1.5, 2.0].includes(n) ? n : null;
+    },
+    (v) => v.toFixed(1)
+  );
+  const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
+    "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
+  );
+  const [platform, setPlatform] = useUrlState<string>(
+    "platform", "",
+    (raw) => {
+      const lower = raw.toLowerCase();
+      return PLATFORMS.some((p) => p.id === lower) ? lower : "";
+    },
+  );
+
   // Global keyboard shortcuts:
   //   /         -> focus the search input
   //   Escape    -> close the modal, or clear the search query if the modal is already closed
@@ -314,36 +346,6 @@ export default function GraphView() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedNode, searchQuery, setViewMode]);
-
-  // UI filters
-  const [searchQuery, setSearchQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const modalPanelRef = useRef<HTMLDivElement>(null);
-  useFocusTrap<HTMLDivElement>(selectedNode != null, {
-    initialFocus: () => modalPanelRef.current?.querySelector<HTMLElement>(".modal-close") ?? null,
-  });
-  const [selectedCategory, setSelectedCategory] = useUrlState<string>(
-    "cat", "ALL",
-    URL_PARSERS.oneOf("ALL", "Model", "Framework", "Tool", "Language", "Platform", "Concept")
-  );
-  const [minHype, setMinHype] = useUrlState<number>(
-    "hype", 1.0,
-    (raw) => {
-      const n = Number.parseFloat(raw);
-      return [1.0, 1.5, 2.0].includes(n) ? n : null;
-    },
-    (v) => v.toFixed(1)
-  );
-  const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
-    "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
-  );
-  const [platform, setPlatform] = useUrlState<string>(
-    "platform", "",
-    (raw) => {
-      const lower = raw.toLowerCase();
-      return PLATFORMS.some((p) => p.id === lower) ? lower : "";
-    },
-  );
 
   // ── Column layout by category ───────────────────────────────────────────
   const layoutNodesByColumns = useCallback((apiNodes: ApiNode[], hoverId: string | null) => {
@@ -729,7 +731,7 @@ export default function GraphView() {
         {error && !loading && (
           <div className="state-screen">
             <p className="state-error">{error === "load-failed" ? t.loadError : error}</p>
-            <button className="pill" onClick={() => fetchGraphData(days)}>{t.retry}</button>
+            <button className="pill" onClick={() => fetchGraphData(days, platform)}>{t.retry}</button>
           </div>
         )}
 

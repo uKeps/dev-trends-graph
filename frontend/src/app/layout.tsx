@@ -52,7 +52,7 @@ export default function RootLayout({
       </head>
       <body>
         <SkipLink />
-        <main id="main">{children}</main>
+        <main id="main" tabIndex={-1}>{children}</main>
       </body>
     </html>
   );
