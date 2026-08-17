@@ -113,6 +113,22 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
+      - name: Install Playwright browsers
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e:install
+
+      - name: Playwright a11y and E2E tests
+        if: github.event_name == 'pull_request'
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
       # The amondnet/vercel-action requires a local .vercel link (project.json),
       # which this repo does not have. Vercel's native GitHub integration already
       # handles the production deploy, so we keep that and disable this manual
