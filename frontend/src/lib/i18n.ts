@@ -29,6 +29,10 @@ export const dict = {
     openOriginal: "Open original discussion",
     metricDiscussions: "Discussions",
     readOn: "Read on",
+    close: "Close",
+    viewModeAria: "View mode",
+    periodAria: "Time period",
+    languageAria: "Language",
     categories: {
       Model: "Model",
       Framework: "Framework",
@@ -64,6 +68,10 @@ export const dict = {
     openOriginal: "Abrir discussão original",
     metricDiscussions: "Discussões",
     readOn: "Ler no",
+    close: "Fechar",
+    viewModeAria: "Modo de visualização",
+    periodAria: "Período",
+    languageAria: "Idioma",
     categories: {
       Model: "Modelo",
       Framework: "Framework",

@@ -6,7 +6,7 @@
   --border-strong: #42454b;
   --text-primary: #ecedee;
   --text-secondary: #8c9096;
-  --text-tertiary: #55585e;
+  --text-tertiary: #6e737a;
   --accent-blue: #3d6bff;
   --accent-violet: #7b3ff2;
   --accent-red: #ff3b47;
@@ -299,7 +299,7 @@ a {
 }
 .tag {
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.09em;
@@ -566,7 +566,7 @@ a {
 }
 .modal-section-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
   letter-spacing: 0.06em;
@@ -603,7 +603,7 @@ a {
 }
 .modal-metric-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 4px;
 }
@@ -705,4 +705,53 @@ a {
     flex: 1;
     min-width: 0;
   }
+}
+
+/* ---------- A11Y (PR-A1) ---------- */
+
+/* Focus ring: 2px inset offset in the surface color + 2px accent outline. */
+:root {
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-blue);
+}
+
+/* Skip-link is hidden until focused, then snaps to the top of the page. */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 12px;
+  z-index: 100;
+  padding: 8px 12px;
+  background: var(--text-primary);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border-radius: var(--radius);
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Consistent visible focus on every interactive element. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible,
+[role="tab"]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Honor users who request reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none !important; }
+  .react-flow__edge.animated .react-flow__edge-path { animation: none !important; }
+  .switch-thumb { transition: none !important; }
+  .card,
+  .news-item,
+  .pill,
+  .segmented button { transition: none !important; }
 }
