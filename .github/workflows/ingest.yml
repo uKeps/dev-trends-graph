@@ -52,10 +52,21 @@ jobs:
             exit 1
           fi
 
-          # HTTP 200 não basta: se o LLM falhar, a extração cai na lista fixa de palavras-chave
-          # e a rodada "passa" entregando curadoria pobre. Falhar aqui é o que torna isso visível.
+          # Checagens em camadas: qualquer sinal de curadoria degradada
+          # precisa falhar o workflow, não só o fallback do LLM.
+          if grep -q '"status":"degraded"' response.json; then
+            echo "❌ Status 'degraded' — o backend reportou problema na curadoria."
+            exit 1
+          fi
+
           if grep -q 'keyword-fallback' response.json; then
             echo "❌ Curadoria degradada — o LLM falhou (veja llmError acima)."
             exit 1
           fi
+
+          if grep -q '"llmError"' response.json; then
+            echo "❌ llmError presente na resposta — ver acima."
+            exit 1
+          fi
+
           echo "✅ Ingestão concluída"
