@@ -100,17 +100,15 @@ public class GraphExtractionService {
             NodeRepository nodeRepository,
             EdgeRepository edgeRepository,
             ObjectMapper objectMapper,
+            HttpClient httpClient,
             PlatformTransactionManager transactionManager,
             CircuitBreakerRegistry circuitBreakerRegistry) {
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
         this.objectMapper = objectMapper;
+        this.httpClient = httpClient;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
     }
 
     /** Artigo coletado de qualquer plataforma. */
