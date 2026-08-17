@@ -9,8 +9,79 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ============================================================
+-- TABLE: nodes
+-- Represents concepts, technologies, frameworks and tools.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS nodes (
+    id          UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
+    label       VARCHAR(100)      NOT NULL,
+    category    VARCHAR(50)       NOT NULL DEFAULT 'Technology',
+    hype_score  FLOAT             NOT NULL DEFAULT 1.0,
+    first_seen  TIMESTAMPTZ       NOT NULL DEFAULT now(),
+    last_seen   TIMESTAMPTZ       NOT NULL DEFAULT now(),
+    mention_count INT             NOT NULL DEFAULT 1,
+    summary         TEXT,
+    summary_en      TEXT,
+    source_url      TEXT,
+    source_title    TEXT,
+    source_platform VARCHAR(50)
+);
+
+-- Deduplicate labels that collide case-insensitively. The old hand-rolled
+-- schema never created uq_nodes_label_lower on existing databases, so rows
+-- like 'python peg parser' and 'Python PEG Parser' can coexist there. Keep
+-- the row with the highest mention_count (oldest first_seen on ties) and
+-- fold its data into the keeper before dropping it, so the unique index
+-- below can be created. No-op on fresh installs where there are no rows.
+UPDATE nodes n
+SET mention_count = keeper.mention_count,
+    hype_score    = keeper.hype_score,
+    last_seen     = keeper.last_seen,
+    first_seen    = keeper.first_seen,
+    summary       = COALESCE(NULLIF(keeper.summary, ''), n.summary),
+    summary_en    = COALESCE(NULLIF(keeper.summary_en, ''), n.summary_en),
+    source_url    = COALESCE(NULLIF(keeper.source_url, ''), n.source_url),
+    source_title  = COALESCE(NULLIF(keeper.source_title, ''), n.source_title),
+    source_platform = COALESCE(NULLIF(keeper.source_platform, ''), n.source_platform),
+    category      = COALESCE(NULLIF(keeper.category, 'Technology'), n.category)
+FROM (
+    SELECT DISTINCT ON (LOWER(label)) id, label, mention_count, hype_score,
+           last_seen, first_seen, summary, summary_en, source_url,
+           source_title, source_platform, category
+    FROM nodes
+    ORDER BY LOWER(label), mention_count DESC, first_seen ASC
+) keeper
+WHERE LOWER(n.label) = LOWER(keeper.label)
+  AND n.id <> keeper.id;
+
+DELETE FROM nodes n
+USING (
+    SELECT id, ROW_NUMBER() OVER (
+        PARTITION BY LOWER(label) ORDER BY mention_count DESC, first_seen ASC
+    ) AS rn
+    FROM nodes
+) ranked
+WHERE n.id = ranked.id AND ranked.rn > 1;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nodes_label_lower
+    ON nodes (LOWER(label));
+
+CREATE INDEX IF NOT EXISTS idx_nodes_label
+    ON nodes (label);
+
+CREATE INDEX IF NOT EXISTS idx_nodes_hype_score
+    ON nodes (hype_score DESC);
+
+CREATE INDEX IF NOT EXISTS idx_nodes_category
+    ON nodes (category);
+
+CREATE INDEX IF NOT EXISTS idx_nodes_last_seen
+    ON nodes (last_seen DESC);
+
+-- ============================================================
 -- TABLE: posts
 -- Stores articles collected from Hacker News and other sources.
+-- Must be created after nodes: node_id references nodes(id).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS posts (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -30,40 +101,6 @@ CREATE INDEX IF NOT EXISTS idx_posts_published_at
 
 CREATE INDEX IF NOT EXISTS idx_posts_platform
     ON posts (platform);
-
--- ============================================================
--- TABLE: nodes
--- Represents concepts, technologies, frameworks and tools.
--- ============================================================
-CREATE TABLE IF NOT EXISTS nodes (
-    id          UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
-    label       VARCHAR(100)      NOT NULL,
-    category    VARCHAR(50)       NOT NULL DEFAULT 'Technology',
-    hype_score  FLOAT             NOT NULL DEFAULT 1.0,
-    first_seen  TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    last_seen   TIMESTAMPTZ       NOT NULL DEFAULT now(),
-    mention_count INT             NOT NULL DEFAULT 1,
-    summary         TEXT,
-    summary_en      TEXT,
-    source_url      TEXT,
-    source_title    TEXT,
-    source_platform VARCHAR(50)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_nodes_label_lower
-    ON nodes (LOWER(label));
-
-CREATE INDEX IF NOT EXISTS idx_nodes_label
-    ON nodes (label);
-
-CREATE INDEX IF NOT EXISTS idx_nodes_hype_score
-    ON nodes (hype_score DESC);
-
-CREATE INDEX IF NOT EXISTS idx_nodes_category
-    ON nodes (category);
-
-CREATE INDEX IF NOT EXISTS idx_nodes_last_seen
-    ON nodes (last_seen DESC);
 
 -- ============================================================
 -- TABLE: edges
