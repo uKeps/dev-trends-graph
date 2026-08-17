@@ -3,10 +3,10 @@ package com.dev.trends.model;
 import java.util.List;
 
 /**
- * Record imutável representando o resultado da extração pelo LLM.
- * Inclui o motivo da queda para extração por palavra-chave, quando foi o caso —
- * {@code llmError} carrega essa informação POR CHAMADA, em vez do antigo campo
- * mutável compartilhado por todas as requests no service.
+ * Immutable record representing the LLM extraction result.
+ * Includes the reason for falling back to keyword extraction, when applicable —
+ * {@code llmError} carries that information PER CALL, instead of the legacy
+ * mutable field shared across all requests in the service.
  */
 public record ExtractionResult(
         List<NodeRequest> nodes,

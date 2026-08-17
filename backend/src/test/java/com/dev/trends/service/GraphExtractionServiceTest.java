@@ -19,16 +19,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * A amostragem do prompt existe para caber no limite de tokens por minuto da Groq: se ela
- * devolver artigos demais o request volta 413, e se ela perder fontes a curadoria fica cega
- * para as últimas plataformas da lista concatenada.
+ * The prompt sampling exists to fit Groq's tokens-per-minute limit: if it returns
+ * too many articles the request fails with 413, and if it drops sources the
+ * curation goes blind to the last platforms in the concatenated list.
  */
 class GraphExtractionServiceTest {
 
     private final GraphExtractionService service = buildService();
 
-    /** Constroi o service com um TransactionManager no-op (os testes de amostragem
-     *  não disparam persistência, mas o construtor exige a dependência). */
+    /** Builds the service with a no-op TransactionManager (the sampling tests
+     *  don't trigger persistence, but the constructor requires the dependency). */
     private static GraphExtractionService buildService() {
         PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
         TransactionStatus status = new SimpleTransactionStatus();
@@ -36,7 +36,7 @@ class GraphExtractionServiceTest {
         return new GraphExtractionService(null, null, new ObjectMapper(), txManager);
     }
 
-    /** Reproduz a ordem real de fetchAllArticles: as fontes chegam concatenadas, não intercaladas. */
+    /** Reproduces the real order of fetchAllArticles: sources arrive concatenated, not interleaved. */
     private static List<Article> collected(int hn, int devto, int lobsters, int stackoverflow) {
         return collected(hn, devto, lobsters, stackoverflow, Instant.now());
     }
@@ -48,7 +48,7 @@ class GraphExtractionServiceTest {
                 new Source("lobsters", lobsters), new Source("stackoverflow", stackoverflow))) {
             for (int i = 0; i < s.count(); i++) {
                 String id = s.platform() + "-" + i;
-                articles.add(new Article(id, "Título " + id, "https://x/" + id, "https://x/" + id, s.platform(), publishedAt));
+                articles.add(new Article(id, "Title " + id, "https://x/" + id, "https://x/" + id, s.platform(), publishedAt));
             }
         }
         return articles;
@@ -62,7 +62,7 @@ class GraphExtractionServiceTest {
 
     @Test
     void capsTheBatchWithoutRepeatingArticles() {
-        // Tamanho real de uma rodada: 60 HN + 60 Dev.to + 25 Lobsters + 60 StackOverflow.
+        // Real round size: 60 HN + 60 Dev.to + 25 Lobsters + 60 StackOverflow.
         List<Article> sample = service.sampleForPrompt(collected(60, 60, 25, 60));
 
         assertThat(sample).hasSize(120);
@@ -79,13 +79,13 @@ class GraphExtractionServiceTest {
 
     @Test
     void survivesABatchThatBarelyExceedsTheCap() {
-        // O índice é calculado por passo fracionário; um passo perto de 1.0 é onde ele estouraria.
+        // The index is computed in fractional steps; a step close to 1.0 is where it would overflow.
         assertThat(service.sampleForPrompt(collected(121, 0, 0, 0))).hasSize(120);
     }
 
     @Test
     void acceptsFreshArticles() {
-        // publishedAt = agora: passa no teto de 30 dias.
+        // publishedAt = now: passes the 30-day ceiling.
         Instant fresh = Instant.now();
         List<Article> articles = collected(2, 0, 0, 0, fresh);
         assertThat(service.sampleForPrompt(articles)).hasSize(2);
@@ -93,8 +93,8 @@ class GraphExtractionServiceTest {
 
     @Test
     void wouldDropArticlesOlderThan30DaysIfFilterWereAppliedAtSample() {
-        // Cobertura: o teto é de 30 dias. Um artigo de 31 dias seria descartado na entrada
-        // do fetch* — aqui só validamos que o construtor aceita publishedAt antigo.
+        // Coverage: the ceiling is 30 days. A 31-day-old article would be dropped at the
+        // fetch* entry — here we only validate that the constructor accepts old publishedAt.
         Instant ancient = Instant.now().minus(31, ChronoUnit.DAYS);
         Article old = new Article("x", "T", "u", "u", "hackernews", ancient);
         assertThat(old.publishedAt()).isBefore(Instant.now().minus(30, ChronoUnit.DAYS));

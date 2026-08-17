@@ -60,11 +60,12 @@ public class GraphExtractionService {
     private static final int MAX_HN_ARTICLES = 60;
 
     /**
-     * Quantos artigos vão no prompt de extração. O tier free da Groq limita a 8000 tokens por
-     * minuto e conta input + max_tokens como reservados, então o request inteiro tem que caber
-     * nesse teto: ~20 tokens por artigo aqui dá ~2,7k de entrada, que com max_tokens deixa ~6,7k.
-     * Coletamos mais artigos do que isso de propósito — o feed de notícias usa a lista completa,
-     * só a curadoria do grafo é que enxerga a amostra.
+     * How many articles make it into the extraction prompt. Groq's free tier caps
+     * at 8000 tokens per minute and counts input + max_tokens as reserved, so the
+     * whole request must fit under that ceiling: ~20 tokens per article here gives
+     * ~2.7k of input, which combined with max_tokens leaves ~6.7k. We deliberately
+     * collect more articles than that — the news feed uses the full list, only the
+     * graph curation sees the sample.
      */
     private static final int MAX_PROMPT_ARTICLES = 120;
 
@@ -73,12 +74,12 @@ public class GraphExtractionService {
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
     /**
-     * Usado para delimitar transações SÓ em volta da persistência (persistNodes/persistEdges).
-     * O pipeline inteiro não roda dentro de uma transação: as chamadas HTTP (~185) e o request
-     * síncrono ao LLM acontecem sem segurar uma conexão do pool (que tem só 3 slots no Render
-     * free tier). Cada upsert individual já é atômico via ON CONFLICT; nós e arestas pertencem
-     * a agregados independentes, então não precisaríamos de uma transação "global" — só queremos
-     * que cada upsert pegue e libere o pool rapidamente.
+     * Used to scope transactions ONLY around persistence (persistNodes/persistEdges).
+     * The full pipeline does not run inside a transaction: the ~185 HTTP calls and the
+     * synchronous LLM request happen without holding a pool connection (only 3 slots
+     * on Render's free tier). Each individual upsert is already atomic via ON CONFLICT;
+     * nodes and edges belong to independent aggregates, so we wouldn't need a "global"
+     * transaction — we only want each upsert to grab and release the pool quickly.
      */
     private final TransactionTemplate transactionTemplate;
 
@@ -110,43 +111,45 @@ public class GraphExtractionService {
     public record Article(String id, String title, String url, String discussionUrl, String platform, Instant publishedAt) {}
 
     /**
-     * Teto de idade dos artigos no feed de notícias e no prompt do LLM. Itens mais antigos
-     * que isso são descartados na coleta — protege contra Lobsters "hottest" (all-time) e
-     * StackOverflow "activity" (perguntas antigas com comentário recente) trazendo conteúdo
-     * de anos atrás pra home, o que fere o propósito do site de mostrar o que está em alta.
+     * Maximum age of articles in the news feed and the LLM prompt. Items older
+     * than this are dropped at collection time — protects against Lobsters "hottest"
+     * (all-time) and StackOverflow "activity" (old questions with a recent comment)
+     * pulling in years-old content, which defeats the purpose of a "what's trending
+     * now" site.
      */
     private static final Duration MAX_ARTICLE_AGE = Duration.ofDays(30);
 
     /**
-     * Pipeline principal: busca artigos de múltiplas fontes → extrai grafo via LLM → persiste.
-     * Sem {@code @Transactional} aqui de propósito: o pipeline inclui ~185 requests HTTP e
-     * uma chamada síncrona ao LLM (até 60s). Manter a transação nesse intervalo monopolizaria
-     * uma conexão do Hikari (pool de 3) e estouraria o limite em qualquer pareamento.
-     * A persistência é envolvida em uma transação curta em persistNodes/persistEdges.
+     * Main pipeline: collects articles from multiple sources -> extracts the graph
+     * via the LLM -> persists. Intentionally NOT {@code @Transactional}: the
+     * pipeline includes ~185 HTTP requests and a synchronous LLM call (up to 60s).
+     * Holding a transaction across that would monopolize a Hikari connection
+     * (3-slot pool) and blow past the limit on any pairing. Persistence is wrapped
+     * in a short transaction inside persistNodes/persistEdges.
      */
     public ExtractionResult runIngestionPipeline() {
-        log.info("Iniciando pipeline de ingestão multi-fonte...");
+        log.info("Starting multi-source ingestion pipeline...");
 
         List<Article> articles = fetchAllArticles();
         if (articles.isEmpty()) {
-            log.warn("Nenhum artigo coletado. Abortando pipeline.");
+            log.warn("No articles collected. Aborting pipeline.");
             return ExtractionResult.empty();
         }
         log.info("Coletados {} artigos de {} fontes.", articles.size(),
                 articles.stream().map(Article::platform).distinct().count());
 
         ExtractionResult extracted = callLlmForExtraction(articles);
-        log.info("LLM extraiu {} nós e {} arestas.", extracted.nodes().size(), extracted.edges().size());
+        log.info("LLM extracted {} nodes and {} edges.", extracted.nodes().size(), extracted.edges().size());
 
         int nodesCreated = persistNodes(extracted.nodes(), articles);
         int edgesCreated = persistEdges(extracted.edges(), articles);
 
-        log.info("Pipeline concluído. Nós: {}, Arestas: {}", nodesCreated, edgesCreated);
+        log.info("Pipeline finished. Nodes: {}, Edges: {}", nodesCreated, edgesCreated);
         return extracted;
     }
 
     // =========================================================
-    // FASE 1: Coleta multi-fonte
+    // PHASE 1: Multi-source collection
     // =========================================================
 
     private List<Article> fetchAllArticles() {
@@ -205,8 +208,8 @@ public class GraphExtractionService {
                     String url = item.has("url") ? item.get("url").asText()
                             : "https://news.ycombinator.com/item?id=" + itemId;
                     String discussion = "https://news.ycombinator.com/item?id=" + itemId;
-                    // Campo "time" da HN é epoch em segundos. Sem ele (item removido, etc.)
-                    // deixamos null e o filtro de idade na camada de cima ainda roda.
+                    // HN's "time" field is epoch seconds. Without it (item removed, etc.)
+                    // we leave it null and the age filter on the layer above still runs.
                     Instant publishedAt = item.has("time") && item.get("time").isNumber()
                             ? Instant.ofEpochSecond(item.get("time").asLong())
                             : null;
@@ -220,9 +223,9 @@ public class GraphExtractionService {
     }
 
     /**
-     * Verdadeiro se `publishedAt` é mais antigo que MAX_ARTICLE_AGE. Quando a data veio nula
-     * (campo ausente na fonte, parse quebrado, etc.) aceitamos o artigo — o teto rígido na
-     * query do feed (NodeRepository) ainda corta o pior do backfill.
+     * True if `publishedAt` is older than MAX_ARTICLE_AGE. When the date came back
+     * null (field missing at the source, broken parse, etc.) we accept the article —
+     * the hard ceiling at the fetch* entry still protects against obvious garbage.
      */
     private boolean isOlderThanCeiling(Instant publishedAt) {
         if (publishedAt == null) return false;
@@ -252,8 +255,8 @@ public class GraphExtractionService {
 
                     String url = item.path("url").asText("");
                     String id = String.valueOf(item.path("id").asLong());
-                    // Dev.to devolve ISO 8601 em "published_at"; às vezes pode estar ausente
-                    // para rascunhos antigos. Parse tolerante — falha vira null.
+                    // Dev.to returns ISO 8601 in "published_at"; it can be missing for
+                    // legacy drafts. Tolerant parse - failure becomes null.
                     Instant publishedAt = parseInstantOrNull(item.path("published_at").asText(""));
                     if (isOlderThanCeiling(publishedAt)) continue;
                     articles.add(new Article(id, title, url, url, "devto", publishedAt));
@@ -289,8 +292,8 @@ public class GraphExtractionService {
                 String url = item.path("url").asText("");
                 String commentsUrl = item.path("comments_url").asText(url);
                 String id = item.path("short_id").asText("");
-                // /hottest.json é "all-time hottest", então sem este filtro a home fica
-                // cheia de itens de anos atrás que viralizaram uma vez e nunca mais.
+                // /hottest.json is "all-time hottest", so without this filter the home
+                // page fills with items from years ago that went viral once and never came back.
                 Instant publishedAt = parseInstantOrNull(item.path("created_at").asText(""));
                 if (isOlderThanCeiling(publishedAt)) continue;
                 articles.add(new Article(id, title, url, commentsUrl, "lobsters", publishedAt));
@@ -327,7 +330,7 @@ public class GraphExtractionService {
                     String link = item.path("link").asText("");
                     String id = String.valueOf(item.path("question_id").asLong());
                     // SO devolve epoch em segundos em "creation_date". Com sort=activity, sem
-                    // este filtro pegamos perguntas de anos atrás que só receberam um comentário.
+                    // without this filter we get years-old questions that just received a comment.
                     Instant publishedAt = item.has("creation_date") && item.get("creation_date").isNumber()
                             ? Instant.ofEpochSecond(item.get("creation_date").asLong())
                             : null;
@@ -368,31 +371,31 @@ public class GraphExtractionService {
     }
 
     // =========================================================
-    // FASE 2: Extração via LLM
+    // PHASE 2: LLM extraction
     // =========================================================
 
     private static final List<String> BLACKLIST = NodeRepository.BLACKLIST;
 
-    /** Resultado da chamada ao LLM. `content` é null em caso de falha; `error`
-     *  descreve a falha (null em caso de sucesso). Equivalente a um Result<String, String>
-     *  para evitar um campo mutável compartilhado entre requests. */
+    /** Result of a single LLM call. `content` is null on failure; `error` describes
+     *  the failure (null on success). Equivalent to a Result<String, String> to
+     *  avoid a mutable field shared across requests. */
     private record LlmCallResult(String content, String error) {
         boolean failed() { return content == null; }
     }
 
     /**
-     * Faz uma chamada ao LLM e devolve o conteúdo já limpo. Em caso de falha, devolve
-     * o motivo no campo `error` (per-call) — não escreve em campo de instância, então
-     * requests concorrentes não se sobrescrevem.
+     * Calls the LLM and returns the cleaned-up content. On failure, returns the
+     * reason in the `error` field (per call) — never writes to an instance field,
+     * so concurrent requests don't clobber each other.
      */
     private LlmCallResult requestLlmContent(String model, String systemPrompt, String userMessage) {
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", model,
                     "temperature", 0.1,
-                    // Teto de saída + entrada tem que caber nos 8000 tokens/minuto do tier free
-                    // da Groq, que reserva os dois contra o mesmo limite (413 rate_limit_exceeded
-                    // se estourar). Com ~2,7k de entrada, isto deixa o request em ~6,7k.
+                    // Output + input must fit inside Groq's 8000 tokens/minute free tier,
+                    // which counts both against the same limit (413 rate_limit_exceeded when
+                    // exceeded). With ~2.7k of input this keeps the request at ~6.7k.
                     "max_tokens", 4000,
                     "reasoning_effort", "low",
                     "messages", List.of(
@@ -433,9 +436,9 @@ public class GraphExtractionService {
     }
 
     /**
-     * Amostra espaçada da lista coletada, para o prompt caber no limite de tokens por minuto
-     * sem perder a mistura de fontes — elas chegam concatenadas (HN, Dev.to, Lobsters, SO),
-     * então pegar os primeiros N deixaria as últimas fontes de fora da curadoria.
+     * Evenly-spaced sample of the collected list, so the prompt fits the tokens-per-minute
+     * limit without losing the source mix - sources arrive concatenated (HN, Dev.to,
+     * Lobsters, SO), so taking the first N would leave the trailing sources out of curation.
      */
     List<Article> sampleForPrompt(List<Article> articles) {
         if (articles.size() <= MAX_PROMPT_ARTICLES) return articles;
@@ -450,18 +453,23 @@ public class GraphExtractionService {
 
     private ExtractionResult callLlmForExtraction(List<Article> articles) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
-            log.warn("Chave de API do LLM não configurada. Usando extração por palavras-chave.");
-            return extractByKeyword(articles, "GROQ_API_KEY ausente na configuração do serviço");
+            log.warn("LLM API key not configured. Falling back to keyword extraction.");
+            return extractByKeyword(articles, "GROQ_API_KEY missing from service configuration");
         }
 
-        // Sem os links: a fonte de cada nó é resolvida localmente em parseLlmResponse, então
-        // mandar URLs (e pedi-las de volta) só queimaria tokens de entrada e saída à toa.
+        // Without the links: the source for each node is resolved locally in parseLlmResponse,
+        // so sending URLs (and asking the model to echo them back) would just burn input/output
+        // tokens for nothing.
         String articlesBlock = sampleForPrompt(articles).stream()
                 .map(a -> "- [" + a.platform().toUpperCase() + "] " + a.title())
                 .collect(Collectors.joining("\n"));
 
-        log.debug("Artigos enviados ao LLM:\n{}", articlesBlock);
+        log.debug("Articles sent to LLM:\n{}", articlesBlock);
 
+        // The system prompt and user message below are intentionally in Portuguese:
+        // they instruct the LLM to play the role of a senior technical curator and to
+        // produce English node labels (rule #2). Do not translate these strings —
+        // changing the prompt language would change the model's behavior.
         String systemPrompt = """
                 Você é um Curador Técnico Sênior especializado em Engenharia de Software e IA.
                 Analise a lista de matérias/discussões de Hacker News, Reddit, Dev.to e Lobsters.
@@ -491,11 +499,11 @@ public class GraphExtractionService {
         LlmCallResult llmCall = requestLlmContent(llmModel, systemPrompt, userMessage);
 
         if (llmCall.failed() || !llmCall.content().trim().startsWith("{")) {
-            log.error("Modelo {} não retornou JSON válido. Caindo para extração por palavras-chave. Resposta: '{}'",
+            log.error("Model {} did not return valid JSON. Falling back to keyword extraction. Response: '{}'",
                     llmModel, llmCall.content());
             String error = llmCall.error() != null
                     ? llmCall.error()
-                    : "resposta sem JSON de " + llmModel;
+                    : "response without JSON from " + llmModel;
             return extractByKeyword(articles, error);
         }
 
@@ -503,17 +511,17 @@ public class GraphExtractionService {
     }
 
     /**
-     * Cache de Patterns compilados por palavra. {@link #containsWord} roda em hot path
-     * (uma vez por nó por artigo em {@code parseLlmResponse}, mais vezes em
-     * {@code persistNodeArticles} e {@code findLiveSource}); recompilar o regex a cada
-     * chamada virou o custo dominante dessa etapa. Cachear é transparante: o matcher
-     * resultante é byte-a-byte igual ao original.
+     * Cache of compiled Patterns per word. {@link #containsWord} runs on the hot
+     * path (once per node per article in {@code parseLlmResponse}, plus in
+     * {@code persistNodeArticles} and {@code findLiveSource}); recompiling the regex
+     * on every call became the dominant cost of that step. Caching is transparent:
+     * the resulting matcher is byte-for-byte identical to a fresh one.
      */
     private static final ConcurrentHashMap<String, Pattern> WORD_PATTERNS = new ConcurrentHashMap<>();
 
     /**
-     * Checa se `word` aparece em `text` como palavra inteira (não como substring dentro de
-     * outra palavra). Evita que "Java" case dentro de "JavaScript" e vice-versa.
+     * Checks whether `word` appears in `text` as a whole word (not as a substring of
+     * a larger word). Prevents "Java" from matching inside "JavaScript" and vice versa.
      */
     private boolean containsWord(String text, String word) {
         if (text == null || word == null || word.isBlank()) return false;
@@ -523,10 +531,10 @@ public class GraphExtractionService {
     }
 
     /**
-     * Índice pré-computado de label normalizado → artigo original. Permite que
-     * {@link #findBestMatchingArticle} rode em O(1) em vez de varrer a lista inteira
-     * de artigos a cada nó/aresta processado. Preserva "primeiro match vence" percorrendo
-     * a lista de artigos em ordem original na etapa de construção do índice.
+     * Pre-computed index of normalized label -> original article. Allows
+     * {@link #findBestMatchingArticle} to run in O(1) instead of scanning the whole
+     * article list for every node/edge processed. Preserves "first match wins" by
+     * iterating the articles in their original order when building the index.
      */
     private Map<String, Article> indexArticlesByLabel(List<Article> articles) {
         Map<String, Article> index = new HashMap<>();
@@ -543,9 +551,9 @@ public class GraphExtractionService {
     }
 
     /**
-     * Versão indexada de {@link #findBestMatchingArticle}. Procura no mapa pré-computado
-     * (em vez de iterar a lista) — equivalente em semântica quando o índice foi
-     * construído sobre a mesma lista.
+     * Indexed variant of {@link #findBestMatchingArticle}. Looks up in the
+     * pre-computed map (instead of iterating the list) — semantically equivalent
+     * when the index was built from the same list.
      */
     private Article findBestMatchingArticleFromIndex(String label, Map<String, Article> index) {
         if (label == null || label.isBlank() || index.isEmpty()) return null;
@@ -558,8 +566,8 @@ public class GraphExtractionService {
     }
 
     /**
-     * Encontra o artigo original cujo título menciona o label extraído.
-     * Usado para atribuir fonte real de forma confiável, sem depender do LLM reproduzir URLs.
+     * Finds the original article whose title mentions the extracted label.
+     * Used to reliably assign a real source, without depending on the LLM to reproduce URLs.
      */
     private Article findBestMatchingArticle(String label, List<Article> articles) {
         return articles.stream()
@@ -569,15 +577,15 @@ public class GraphExtractionService {
     }
 
     /**
-     * Busca uma fonte real ao vivo pra um tópico que não tem sourceUrl salvo, usando a API
-     * pública de busca do Hacker News (Algolia). Usado sob demanda, no clique do usuário —
-     * não depende do tópico ter aparecido por acaso num lote de ingestão.
+     * Looks up a real source on demand for a topic that has no stored sourceUrl, using
+     * the public Hacker News search API (Algolia). Called on demand, when the user
+     * clicks — it doesn't depend on the topic happening to appear in an ingestion batch.
      */
     public Article findLiveSource(String label) {
         try {
             String query = URLEncoder.encode(label, StandardCharsets.UTF_8);
-            // hitsPerPage > 1 porque a relevância do Algolia não é palavra-inteira: uma busca
-            // por "Java" costuma trazer resultados de "JavaScript" no topo. Filtramos abaixo.
+            // hitsPerPage > 1 because Algolia's relevance isn't whole-word-aware: a search
+            // for "Java" usually returns "JavaScript" results at the top. We filter below.
             String url = "https://hn.algolia.com/api/v1/search?query=" + query
                     + "&tags=story&hitsPerPage=20";
 
@@ -600,14 +608,14 @@ public class GraphExtractionService {
                 String objectId = hit.path("objectID").asText("");
                 String discussion = "https://news.ycombinator.com/item?id=" + objectId;
                 String articleUrl = hit.path("url").asText(discussion);
-                // Algolia devolve "created_at" como ISO 8601.
+                // Algolia returns "created_at" as ISO 8601.
                 Instant publishedAt = parseInstantOrNull(hit.path("created_at").asText(""));
 
                 return new Article(objectId, title, articleUrl, discussion, "hackernews", publishedAt);
             }
             return null;
         } catch (Exception e) {
-            log.debug("Erro ao buscar fonte ao vivo para '{}': {}", label, e.getMessage());
+            log.debug("Error fetching live source for '{}': {}", label, e.getMessage());
             return null;
         }
     }
@@ -624,12 +632,13 @@ public class GraphExtractionService {
                         String label = n.path("label").asText("Unknown").trim();
                         String category = n.path("category").asText("Technology").trim();
 
-                        // A fonte vem do lote coletado, não do LLM: a URL que ele devolvia era
-                        // descartada quando não batia com um artigo real (alucinação), e o resto
-                        // dos campos já saía daqui. Sem fonte, o frontend busca uma sob demanda.
+                        // The source comes from the collected batch, not from the LLM: the URL
+                        // it returned was discarded when it didn't match a real article
+                        // (hallucination), and the rest of the fields already came from here.
+                        // Without a source, the frontend looks one up on demand.
                         Article match = findBestMatchingArticleFromIndex(label, articleIndex);
                         String sourceUrl = match != null ? match.discussionUrl() : "";
-                        String sourceTitle = match != null ? match.title() : "Discussão na comunidade dev";
+                        String sourceTitle = match != null ? match.title() : "Discussion in the dev community";
                         String sourcePlatform = match != null ? match.platform() : "web";
 
                         return new NodeRequest(label, category, null, sourceUrl, sourceTitle, sourcePlatform);
@@ -651,8 +660,8 @@ public class GraphExtractionService {
             return new ExtractionResult(nodes, edges, null);
 
         } catch (Exception e) {
-            log.error("Falha ao parsear resposta do LLM: {}", e.getMessage(), e);
-            return ExtractionResult.withError("falha ao parsear JSON do LLM: " + e.getMessage());
+            log.error("Failed to parse LLM response: {}", e.getMessage(), e);
+            return ExtractionResult.withError("failed to parse LLM JSON: " + e.getMessage());
         }
     }
 
@@ -665,6 +674,10 @@ public class GraphExtractionService {
             GOOD: "React is a JavaScript library for building declarative component-based interfaces, using a virtual DOM to optimize re-renders."
             """;
 
+    // The two summary prompts below are intentionally per-language user-facing prompts
+    // sent to the LLM. They instruct the model to produce summaries in the requested
+    // language and must not be translated — changing the prompt language would change
+    // the model's behavior.
     private static final String SUMMARY_PROMPT_PT = """
             Explique tecnicamente UMA tecnologia específica em 2-3 frases em português.
             Diga o que ela É e o que ela FAZ — não fale sobre "tendências" ou "discussões recentes".
@@ -675,12 +688,13 @@ public class GraphExtractionService {
             """;
 
     /**
-     * Gera um resumo técnico e específico para UMA tecnologia sob demanda, no idioma pedido
-     * ("pt" para português, qualquer outro valor cai no inglês, que é o padrão da UI).
+     * Generates a specific, technical summary for ONE technology on demand, in the
+     * requested language ("pt" for Portuguese, anything else falls back to English,
+     * which is the UI default).
      */
     public String generateTopicSummary(String label, String category, String sourceTitle, String sourceUrl, String lang) {
         if (llmApiKey == null || llmApiKey.isBlank()) {
-            log.warn("Chave de API do LLM não configurada. Não é possível gerar resumo sob demanda.");
+            log.warn("LLM API key not configured. Cannot generate on-demand summary.");
             return null;
         }
 
@@ -720,10 +734,10 @@ public class GraphExtractionService {
                     return content;
                 }
             } else {
-                log.error("Erro ao gerar resumo para {}: status {}", label, resp.statusCode());
+                log.error("Error generating summary for {}: status {}", label, resp.statusCode());
             }
         } catch (Exception e) {
-            log.error("Erro ao gerar resumo para {}: {}", label, e.getMessage());
+            log.error("Error generating summary for {}: {}", label, e.getMessage());
         }
         return null;
     }
@@ -783,7 +797,7 @@ public class GraphExtractionService {
     }
 
     // =========================================================
-    // FASE 3: Persistência
+    // PHASE 3: Persistence
     // =========================================================
 
     private int persistNodes(List<NodeRequest> nodes, List<Article> articles) {
@@ -796,7 +810,7 @@ public class GraphExtractionService {
                     persistNodeArticles(nodeId, node.label(), articles);
                     count++;
                 } catch (Exception e) {
-                    log.warn("Falha ao persistir nó '{}': {}", node.label(), e.getMessage());
+                    log.warn("Failed to persist node '{}': {}", node.label(), e.getMessage());
                 }
             }
             return count;
@@ -804,8 +818,9 @@ public class GraphExtractionService {
     }
 
     /**
-     * Linka ao tópico todos os artigos do lote atual cujo título o menciona (não só o primeiro),
-     * para alimentar o feed de notícias. Limita a 20 por tópico por rodada de ingestão.
+     * Links to the topic every article from the current batch whose title mentions it
+     * (not just the first one), to feed the news feed. Capped at 20 per topic per
+     * ingestion round.
      */
     private void persistNodeArticles(UUID nodeId, String label, List<Article> articles) {
         if (nodeId == null) return;
@@ -823,9 +838,9 @@ public class GraphExtractionService {
 
     private int persistEdges(List<EdgeRequest> edges, List<Article> articles) {
         return transactionTemplate.execute(status -> {
-            // Coleta todas as labels referenciadas pelas arestas e resolve os IDs existentes
-            // em uma única query batch. Antes era 2 SELECTs por aresta — para 50 arestas são
-            // 100 round-trips ao Postgres, agora é 1.
+            // Collect every label referenced by the edges and resolve existing IDs in a
+            // single batched query. Previously this was 2 SELECTs per edge - for 50 edges
+            // that's 100 Postgres round-trips; now it's 1.
             Set<String> referencedLabels = new HashSet<>();
             for (EdgeRequest edge : edges) {
                 if (edge.source() != null && !edge.source().isBlank()) referencedLabels.add(edge.source());
@@ -844,7 +859,7 @@ public class GraphExtractionService {
                         count++;
                     }
                 } catch (Exception e) {
-                    log.warn("Falha ao persistir aresta '{}→{}': {}", edge.source(), edge.target(), e.getMessage());
+                    log.warn("Failed to persist edge '{}->{}': {}", edge.source(), edge.target(), e.getMessage());
                 }
             }
             return count;
@@ -852,9 +867,9 @@ public class GraphExtractionService {
     }
 
     /**
-     * Resolve o UUID de um label a partir do mapa pré-carregado; quando ausente, cria um
-     * nó órfão e popula o mapa para que chamadas subsequentes com o mesmo label não
-     * repitam o trabalho.
+     * Resolves the UUID for a label from the pre-loaded map; if absent, creates an
+     * orphan node and populates the map so subsequent calls with the same label
+     * don't repeat the work.
      */
     private UUID lookupOrCreate(String label, Map<String, UUID> cache, List<Article> articles) {
         if (label == null || label.isBlank()) return null;
@@ -870,9 +885,10 @@ public class GraphExtractionService {
     }
 
     /**
-     * Cria um nó referenciado só numa aresta (o LLM não o incluiu em `nodes`). Tenta achar a
-     * fonte real no mesmo lote de artigos já coletado; deixa o resumo em branco (em vez de um
-     * texto genérico fixo) para que o frontend ainda dispare a busca de fonte sob demanda depois.
+     * Creates a node referenced only by an edge (the LLM didn't include it in `nodes`).
+     * Tries to find a real source in the already-collected article batch; leaves the
+     * summary blank (instead of a fixed generic text) so the frontend still triggers
+     * the on-demand source lookup afterwards.
      */
     private UUID createOrphanNode(String label, List<Article> articles) {
         Article match = findBestMatchingArticle(label, articles);

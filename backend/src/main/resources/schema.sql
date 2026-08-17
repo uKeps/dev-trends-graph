@@ -1,15 +1,15 @@
 -- ============================================================
--- Mapeador de Tendências da Bolha Dev e IA em Grafos
--- Schema para Supabase (PostgreSQL + pgvector)
--- Execute no SQL Editor do Supabase
+-- Trend mapper for the software development and AI bubble.
+-- Schema for Supabase (PostgreSQL + pgvector).
+-- Run in the Supabase SQL editor.
 -- ============================================================
 
--- 1. Ativar extensão pgvector para embeddings semânticos futuros
+-- 1. Enable the pgvector extension for future semantic embeddings.
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ============================================================
--- TABELA: posts
--- Armazena os artigos coletados do Hacker News e outras fontes
+-- TABLE: posts
+-- Stores articles collected from Hacker News and other sources.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS posts (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -17,32 +17,33 @@ CREATE TABLE IF NOT EXISTS posts (
     url         TEXT,
     platform    VARCHAR(50)      NOT NULL DEFAULT 'hackernews',
     created_at  TIMESTAMPTZ      NOT NULL DEFAULT now(),
-    -- Data de publicação original na fonte (HN/Dev.to/Lobsters/SO). Diferente de created_at,
-    -- que é quando o pipeline coletou. Usada para filtrar o feed de notícias por recência real.
+    -- Original publication date at the source (HN/Dev.to/Lobsters/SO). Different from
+    -- created_at, which is when the pipeline ingested the post. Used to filter the news
+    -- feed by actual recency.
     published_at TIMESTAMPTZ,
     node_id     UUID             REFERENCES nodes(id) ON DELETE CASCADE
 );
 
--- Índice único para linkar cada artigo ao tópico que ele menciona, evitando duplicar o
--- mesmo artigo a cada nova rodada de ingestão (ex: uma notícia que continua em alta no HN).
+-- Unique index linking each article to the topic it mentions, avoiding duplicates
+-- across ingestion rounds (e.g. a story that stays on the HN front page for days).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url
     ON posts (node_id, url);
 
--- Índice para buscas por data (usado no endpoint /api/v1/graph?days=N)
+-- Index for date queries (used by /api/v1/graph?days=N).
 CREATE INDEX IF NOT EXISTS idx_posts_created_at
     ON posts (created_at DESC);
 
--- Índice para o feed de notícias (findRecentArticles filtra por published_at)
+-- Index for the news feed (findRecentArticles filters by published_at).
 CREATE INDEX IF NOT EXISTS idx_posts_published_at
     ON posts (published_at DESC NULLS LAST);
 
--- Índice para busca por plataforma
+-- Index for platform lookups.
 CREATE INDEX IF NOT EXISTS idx_posts_platform
     ON posts (platform);
 
 -- ============================================================
--- TABELA: nodes
--- Representa conceitos, tecnologias, frameworks e ferramentas
+-- TABLE: nodes
+-- Represents concepts, technologies, frameworks and tools.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS nodes (
     id          UUID PRIMARY KEY  DEFAULT gen_random_uuid(),
@@ -52,39 +53,39 @@ CREATE TABLE IF NOT EXISTS nodes (
     first_seen  TIMESTAMPTZ       NOT NULL DEFAULT now(),
     last_seen   TIMESTAMPTZ       NOT NULL DEFAULT now(),
     mention_count INT             NOT NULL DEFAULT 1,
-    summary         TEXT,   -- resumo em português (coluna histórica)
-    summary_en      TEXT,   -- resumo em inglês (idioma padrão da UI)
+    summary         TEXT,   -- legacy Portuguese summary column (historical).
+    summary_en      TEXT,   -- English summary (UI default language).
     source_url      TEXT,
     source_title    TEXT,
     source_platform VARCHAR(50)
 );
 
--- Unicidade case-insensitive sobre o label. O LLM raramente devolve o label
--- exatamente igual ao da rodada anterior (ex.: "react" vs "React"), e a versão
--- antiga com UNIQUE(label) deixava os dois coexistirem — duplicando card no
--- grafo. Esse índice substitui o constraint uq_nodes_label da versão anterior.
+-- Case-insensitive uniqueness on label. The LLM rarely returns the exact same
+-- casing as the previous round (e.g. "react" vs "React"), and the old UNIQUE(label)
+-- let both rows coexist, doubling the card in the graph. This index replaces the
+-- uq_nodes_label constraint from the previous version.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_nodes_label_lower
     ON nodes (LOWER(label));
 
--- Índice B-Tree na label para buscas e joins com arestas
+-- B-Tree index on label for searches and joins with edges.
 CREATE INDEX IF NOT EXISTS idx_nodes_label
     ON nodes (label);
 
--- Índice para ordenação por hype_score (top trends)
+-- Index for hype_score ordering (top trends).
 CREATE INDEX IF NOT EXISTS idx_nodes_hype_score
     ON nodes (hype_score DESC);
 
--- Índice para filtro por categoria
+-- Index for category filter.
 CREATE INDEX IF NOT EXISTS idx_nodes_category
     ON nodes (category);
 
--- Índice para busca por data de primeiro avistamento
+-- Index for first-seen lookups.
 CREATE INDEX IF NOT EXISTS idx_nodes_first_seen
     ON nodes (first_seen DESC);
 
 -- ============================================================
--- TABELA: edges
--- Representa relações semânticas entre conceitos (nós)
+-- TABLE: edges
+-- Represents semantic relations between concepts (nodes).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS edges (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -96,25 +97,25 @@ CREATE TABLE IF NOT EXISTS edges (
     CONSTRAINT uq_edges_pair_relation UNIQUE (source_node_id, target_node_id, relation_type)
 );
 
--- Índice para busca por nó de origem
+-- Index for source-node lookups.
 CREATE INDEX IF NOT EXISTS idx_edges_source
     ON edges (source_node_id);
 
--- Índice para busca por nó de destino
+-- Index for target-node lookups.
 CREATE INDEX IF NOT EXISTS idx_edges_target
     ON edges (target_node_id);
 
--- Índice para filtro por tipo de relação
+-- Index for relation-type filter.
 CREATE INDEX IF NOT EXISTS idx_edges_relation_type
     ON edges (relation_type);
 
--- Índice por data de criação para queries temporais
+-- Index for time-based edge queries.
 CREATE INDEX IF NOT EXISTS idx_edges_created_at
     ON edges (created_at DESC);
 
 -- ============================================================
--- FUNÇÃO: upsert_node
--- Insere ou atualiza um nó, incrementando mention_count e hype_score
+-- FUNCTION: upsert_node
+-- Inserts or updates a node, incrementing mention_count and hype_score.
 -- ============================================================
 CREATE OR REPLACE FUNCTION upsert_node(
     p_label      VARCHAR(100),
@@ -137,8 +138,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================
--- FUNÇÃO: upsert_edge
--- Insere ou incrementa o peso de uma aresta existente
+-- FUNCTION: upsert_edge
+-- Inserts or increments the weight of an existing edge.
 -- ============================================================
 CREATE OR REPLACE FUNCTION upsert_edge(
     p_source_id    UUID,
@@ -160,7 +161,7 @@ $$ LANGUAGE plpgsql;
 
 -- ============================================================
 -- VIEW: v_graph_data
--- Facilita a consulta de nós e arestas com labels resolvidos
+-- Eases queries joining nodes and edges with resolved labels.
 -- ============================================================
 CREATE OR REPLACE VIEW v_graph_data AS
 SELECT

@@ -78,6 +78,10 @@ export const dict = {
 export type Lang = keyof typeof dict;
 export type Dict = (typeof dict)[Lang];
 
+// The `pt` block below is intentional: it is the user-facing Portuguese
+// translation surfaced by the language switcher in the header. Do not move it
+// to English — it is product copy, not repository documentation.
+
 /** Lets graph nodes rendered by React Flow read the active dictionary. */
 export const I18nContext = createContext<Dict>(dict.en);
 export const useT = () => useContext(I18nContext);

@@ -16,7 +16,7 @@
     <artifactId>reticle</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <name>reticle</name>
-    <description>Mapeador de Tendências da Bolha Dev e IA em Grafos</description>
+    <description>Trend mapper for the software development and AI bubble</description>
 
     <properties>
         <java.version>21</java.version>
@@ -24,19 +24,19 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web (Tomcat embutido) -->
+        <!-- Spring Boot Web (embedded Tomcat). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot JDBC para acesso ao Supabase/PostgreSQL -->
+        <!-- Spring Boot JDBC for Supabase/PostgreSQL access. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
-        <!-- Spring Boot Actuator para health checks -->
+        <!-- Spring Boot Actuator for health checks. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -49,7 +49,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Jackson para serialização JSON (HttpClient + REST) -->
+        <!-- Jackson for JSON serialization (HttpClient + REST). -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -61,7 +61,7 @@
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- Testes -->
+        <!-- Tests. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -71,19 +71,19 @@
 
     <build>
         <plugins>
-            <!-- Plugin Spring Boot para gerar fat JAR -->
+            <!-- Spring Boot plugin to produce the fat JAR. -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <!-- Extrai dependências para otimizar cache de layers Docker -->
+                    <!-- Extract dependencies to optimize Docker layer caching. -->
                     <layers>
                         <enabled>true</enabled>
                     </layers>
                 </configuration>
             </plugin>
 
-            <!-- Compilador Java 21 com suporte a previews -->
+            <!-- Java 21 compiler with preview feature support. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -96,7 +96,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Surefire: configura JVM para testes com Java 21 -->
+            <!-- Surefire: JVM configuration for Java 21 tests. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

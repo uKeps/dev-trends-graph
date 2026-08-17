@@ -4,7 +4,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
- * Entidade que representa um nó do grafo de tecnologias.
+ * Entity representing a node in the technology graph.
  */
 public class Node {
     private UUID id;

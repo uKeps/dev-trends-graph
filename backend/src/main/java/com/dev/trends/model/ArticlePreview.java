@@ -3,9 +3,10 @@ package com.dev.trends.model;
 import java.time.OffsetDateTime;
 
 /**
- * Record que representa um artigo individual coletado, associado ao tópico que ele menciona.
- * `publishedAt` é a data real de publicação na fonte; `createdAt` é quando o pipeline o coletou.
- * O frontend usa `publishedAt ?? createdAt` para mostrar "X min/h/d atrás".
+ * Record representing a single collected article, linked to the topic it mentions.
+ * `publishedAt` is the actual publication date at the source; `createdAt` is when
+ * the pipeline collected it. The frontend uses `publishedAt ?? createdAt` to render
+ * "X min/h/d ago".
  */
 public record ArticlePreview(
         String title,

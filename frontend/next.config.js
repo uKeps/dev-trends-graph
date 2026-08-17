@@ -1,10 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Permite importação do CSS do @xyflow/react
+  // Allow @xyflow/react CSS imports.
   transpilePackages: ["@xyflow/react"],
 
-  // Variáveis de ambiente públicas (expostas ao browser)
-  // Configure NEXT_PUBLIC_API_URL no painel da Vercel
+  // Public environment variables (exposed to the browser).
+  // Configure NEXT_PUBLIC_API_URL in the Vercel dashboard.
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
   },

@@ -1,21 +1,18 @@
-name: 🛰️ Ingest — Reticle
+name: Ingest - Reticle
 
-# =============================================================
-# Aciona o pipeline de ingestão multi-fonte de tempos em tempos.
-# O backend não tem scheduler interno de propósito: no free tier do Render
-# o serviço hiberna sem tráfego, então um @Scheduled não rodaria de forma
-# confiável. Quem acorda o serviço e dispara a coleta é este workflow.
-# =============================================================
+# Triggers the multi-source ingestion pipeline on a schedule.
+# The backend has no in-process scheduler on purpose: on Render's free tier
+# the service hibernates without traffic, so an @Scheduled bean would not run
+# reliably. This workflow is what wakes the service up and drives the run.
 on:
   schedule:
-    # A cada 6 horas (UTC). Ajuste aqui pra mudar a cadência.
+    # Every 6 hours (UTC). Adjust here to change the cadence.
     - cron: "0 */6 * * *"
-  # Permite disparar a coleta na mão pela aba Actions, sem curl.
   workflow_dispatch:
 
 jobs:
   trigger-ingestion:
-    name: 🛰️ Trigger ingestion pipeline
+    name: Trigger ingestion pipeline
     runs-on: ubuntu-latest
 
     env:
@@ -23,18 +20,19 @@ jobs:
       API_KEY: ${{ secrets.INGESTION_API_KEY }}
 
     steps:
-      # 1. Acorda o serviço: no free tier do Render o cold start leva ~1min,
-      #    e a ingestão em si já é longa demais pra somar isso no mesmo timeout.
-      - name: ⏰ Wake the backend
+      # Wakes the backend: on Render's free tier the cold start takes ~1min,
+      # and the ingestion itself is already long enough that we don't want
+      # to fold the cold start into the same timeout.
+      - name: Wake the backend
         run: |
           curl --silent --output /dev/null \
             --max-time 120 \
             --retry 5 --retry-delay 15 --retry-all-errors \
-            "$API_URL/health" || echo "Health check falhou; seguindo mesmo assim."
+            "$API_URL/health" || echo "Health check failed; continuing anyway."
 
-      # 2. Dispara o pipeline. A coleta faz ~185 requests + 1 chamada ao LLM,
-      #    então o timeout é generoso de propósito.
-      - name: 🛰️ Run ingestion
+      # Runs the pipeline. The collection makes ~185 requests plus one LLM
+      # call, so the timeout is intentionally generous.
+      - name: Run ingestion
         run: |
           HTTP_STATUS=$(curl --silent --output response.json \
             --write-out "%{http_code}" \
@@ -43,30 +41,30 @@ jobs:
             --header "X-API-Key: $API_KEY" \
             "$API_URL/api/v1/ingest")
 
-          echo "Resposta (HTTP $HTTP_STATUS):"
+          echo "Response (HTTP $HTTP_STATUS):"
           cat response.json || true
           echo
 
           if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "❌ Ingestão falhou (HTTP $HTTP_STATUS)"
+            echo "Ingestion failed (HTTP $HTTP_STATUS)"
             exit 1
           fi
 
-          # Checagens em camadas: qualquer sinal de curadoria degradada
-          # precisa falhar o workflow, não só o fallback do LLM.
+          # Layered checks: any signal of degraded curation must fail the
+          # workflow, not just the LLM-keyword fallback.
           if grep -q '"status":"degraded"' response.json; then
-            echo "❌ Status 'degraded' — o backend reportou problema na curadoria."
+            echo "Status 'degraded' - backend reported a curation problem."
             exit 1
           fi
 
           if grep -q 'keyword-fallback' response.json; then
-            echo "❌ Curadoria degradada — o LLM falhou (veja llmError acima)."
+            echo "Degraded curation - LLM failed (see llmError above)."
             exit 1
           fi
 
           if grep -q '"llmError"' response.json; then
-            echo "❌ llmError presente na resposta — ver acima."
+            echo "llmError present in the response - see above."
             exit 1
           fi
 
-          echo "✅ Ingestão concluída"
+          echo "Ingestion completed"

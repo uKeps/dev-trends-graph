@@ -370,7 +370,7 @@ a {
   color: var(--text-primary);
 }
 
-/* Nó do React Flow reaproveita .card com largura fixa */
+/* React Flow node reuses .card with a fixed width. */
 .graph-card {
   width: 240px;
   cursor: pointer;

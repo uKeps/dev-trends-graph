@@ -24,21 +24,21 @@ import java.util.stream.Collectors;
 @Repository
 public class NodeRepository {
 
-    /** Teto intencional para queries de grafo. Sem este LIMIT, /api/v1/graph
-     *  retorna o conjunto inteiro — em produção podemos ter milhares de nós
-     *  e a página do frontend travaria ao tentar renderizar todos. Manter
-     *  o limite explícito (em vez de depender do spring.jdbc.template.max-rows)
-     *  torna a truncagem visível e revisável. */
+    /** Intentional cap for graph queries. Without this LIMIT, /api/v1/graph
+     *  returns the entire set — in production we can have thousands of nodes and
+     *  the frontend page would freeze trying to render them all. Keeping the limit
+     *  explicit (instead of relying on spring.jdbc.template.max-rows) makes the
+     *  truncation visible and reviewable. */
     public static final int GRAPH_QUERY_LIMIT = 500;
 
-    /** Termos genéricos que NÃO devem aparecer como nós do grafo (são o output
-     *  típico do LLM quando ele desiste de extrair algo específico). O mesmo
-     *  conjunto é usado:
-     *  - em findNodesSince() como filtro SQL (LIKE em LOWER),
-     *  - em GraphExtractionService.isBlacklisted() para descartar o nó
-     *    extraído antes de persisti-lo.
-     *  Manter os dois lados derivados daqui garante que adicionar 'docker' ou
-     *  tirar 'web' da lista vale nos dois lugares sem ter que lembrar do outro. */
+    /** Generic terms that MUST NOT appear as graph nodes (they are the typical
+     *  output of the LLM when it gives up on extracting something specific). The
+     *  same set is used:
+     *  - in findNodesSince() as an SQL filter (LIKE on LOWER),
+     *  - in GraphExtractionService.isBlacklisted() to discard the extracted node
+     *    before persisting it.
+     *  Keeping both sides derived from this list ensures adding 'docker' or
+     *  removing 'web' applies in both places without having to remember the other. */
     public static final List<String> BLACKLIST = List.of(
             "mac", "macos", "linux", "windows", "unix", "pc", "computer", "software",
             "hardware", "internet", "web", "news", "show hn", "ask hn", "pdf", "article",
@@ -57,17 +57,18 @@ public class NodeRepository {
     }
 
     /**
-     * Aplica migrações de schema idempotentes uma única vez na subida da aplicação.
+     * Applies idempotent schema migrations once at application startup.
      *
-     * <p>Antes, {@code ensureSourceColumnsExist()} e {@code ensureArticleColumnsExist()}
-     * rodavam em toda chamada a {@code findNodesSince} / {@code findById} /
-     * {@code insertArticle} / {@code findRecentArticles}, disparando ~10 round-trips ao
-     * Postgres por request do grafo. Como o schema não muda em runtime, adiantar tudo
-     * para o startup reduz tráfego de banco sem mudar comportamento.
+     * <p>Previously, {@code ensureSourceColumnsExist()} and {@code ensureArticleColumnsExist()}
+     * ran on every call to {@code findNodesSince} / {@code findById} /
+     * {@code insertArticle} / {@code findRecentArticles}, firing ~10 round-trips to
+     * Postgres per graph request. Since the schema doesn't change at runtime, moving
+     * everything to startup reduces database traffic without changing behavior.
      *
-     * <p>Também limpa o resumo genérico fixo que a versão antiga do pipeline gravava
-     * em nós órfãos (referenciados só numa aresta) sem fonte — sem esse resumo
-     * "cacheado", o frontend volta a disparar a busca de fonte sob demanda para esses nós.
+     * <p>Also clears the generic summary that the old pipeline version stamped on
+     * orphan nodes (referenced by a single edge) without a source — without that
+     * "cached" summary the frontend re-triggers the on-demand source lookup for
+     * those nodes.
      */
     @PostConstruct
     public void applySchemaMigrations() {
@@ -75,19 +76,19 @@ public class NodeRepository {
             ensureSourceColumnsExist();
             ensureArticleColumnsExist();
         } catch (Exception e) {
-            // Tabelas podem não existir ainda na primeira subida; ignora.
+            // Tables may not exist yet on the very first boot; ignore.
         }
         try {
             int updated = jdbc.update(
                     "UPDATE nodes SET summary = NULL " +
-                            "WHERE summary = 'Conceito em destaque no ecossistema.' " +
+                            "WHERE summary = 'Conceito em destaque no ecossistema.' " +  // historical PT summary literal; cleared on first boot.
                             "AND (source_url IS NULL OR source_url = '')");
             if (updated > 0) {
                 org.slf4j.LoggerFactory.getLogger(NodeRepository.class)
-                        .info("Limpou resumo genérico de {} nó(s) sem fonte para reprocessamento.", updated);
+                        .info("Cleared the generic summary of {} source-less node(s) for reprocessing.", updated);
             }
         } catch (Exception e) {
-            // Tabela pode não existir ainda na primeira subida; ignora.
+            // Table may not exist yet on the very first boot; ignore.
         }
     }
 
@@ -102,8 +103,8 @@ public class NodeRepository {
     );
 
     /**
-     * Garante que as colunas summary, source_url e source_title existam na tabela nodes.
-     * Chamada uma única vez no startup via {@link #applySchemaMigrations()}.
+     * Ensures the summary, source_url and source_title columns exist on the nodes
+     * table. Called once at startup via {@link #applySchemaMigrations()}.
      */
     private void ensureSourceColumnsExist() {
         try {
@@ -113,21 +114,21 @@ public class NodeRepository {
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_title TEXT;");
             jdbc.execute("ALTER TABLE nodes ADD COLUMN IF NOT EXISTS source_platform VARCHAR(50);");
         } catch (Exception e) {
-            // Ignora se já existirem
+            // Ignore if they already exist.
         }
     }
 
     /**
-     * Coluna do resumo por idioma. "summary" é a coluna histórica, em português;
-     * o inglês (padrão da UI) vive em "summary_en". Só retorna literais — nunca
-     * o valor cru do parâmetro — para não abrir injeção de SQL.
+     * Summary column for the given language. "summary" is the legacy Portuguese
+     * column; English (the UI default) lives in "summary_en". Only returns
+     * literals — never the raw parameter value — to avoid opening SQL injection.
      */
     private static String summaryColumn(String lang) {
         return "pt".equals(lang) ? "summary" : "summary_en";
     }
 
     /**
-     * Insere ou atualiza um nó (sobrecarga para conveniência com 2 parâmetros).
+     * Inserts or updates a node (overload for convenience with 2 parameters).
      */
     public UUID upsertNode(String label, String category) {
         return upsertNode(label, category, null, null, null);
@@ -138,9 +139,9 @@ public class NodeRepository {
     }
 
     /**
-     * Insere ou atualiza um nó com resumo, link de origem e plataforma.
-     * A unicidade é case-insensitive (índice uq_nodes_label_lower em schema.sql):
-     * "react" e "React" colidem no mesmo nó.
+     * Inserts or updates a node with summary, source link and platform.
+     * Uniqueness is case-insensitive (uq_nodes_label_lower index in schema.sql):
+     * "react" and "React" collide on the same node.
      */
     public UUID upsertNode(String label, String category, String summary, String sourceUrl, String sourceTitle, String sourcePlatform) {
         String sql = """
@@ -161,7 +162,7 @@ public class NodeRepository {
     }
 
     /**
-     * Busca o UUID de um nó pelo label (case-insensitive).
+     * Finds the UUID of a node by label (case-insensitive).
      */
     public Optional<UUID> findIdByLabel(String label) {
         String sql = "SELECT id FROM nodes WHERE LOWER(label) = LOWER(?) LIMIT 1";
@@ -171,12 +172,13 @@ public class NodeRepository {
     }
 
     /**
-     * Busca os UUIDs de vários nós por label (case-insensitive), em uma única query.
+     * Finds the UUIDs of many nodes by label (case-insensitive) in a single query.
      *
-     * <p>Equivalente em semântica a chamar {@link #findIdByLabel} para cada label
-     * individualmente, mas com 1 round-trip ao banco em vez de N. Retorna um mapa
-     * label-normalizado → UUID apenas para os labels encontrados; labels ausentes
-     * simplesmente não aparecem no mapa (o caller decide se cria órfão).
+     * <p>Semantically equivalent to calling {@link #findIdByLabel} for each label
+     * individually, but with 1 round-trip to the database instead of N. Returns a
+     * normalized-label -> UUID map only for the labels that were found; missing
+     * labels simply don't appear in the map (the caller decides whether to create
+     * an orphan).
      */
     public Map<String, UUID> findIdsByLabels(Collection<String> labels) {
         if (labels == null || labels.isEmpty()) return Map.of();
@@ -204,7 +206,7 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna todos os nós que foram vistos desde N dias atrás, ignorando termos genéricos de TI.
+     * Returns all nodes seen since N days ago, ignoring generic IT terms.
      */
     public List<Node> findNodesSince(int days, String lang) {
         String sql = """
@@ -234,7 +236,7 @@ public class NodeRepository {
     }
 
     /**
-     * Busca um nó pelo ID incluindo summary, source_url, source_title e source_platform.
+     * Finds a node by ID including summary, source_url, source_title and source_platform.
      */
     public Optional<Node> findById(UUID id, String lang) {
         String sql = """
@@ -262,7 +264,7 @@ public class NodeRepository {
     }
 
     /**
-     * Atualiza o resumo (summary) de um nó pelo ID.
+     * Updates the summary of a node by ID.
      */
     public void updateSummary(UUID id, String summary, String lang) {
         String sql = "UPDATE nodes SET " + summaryColumn(lang) + " = ? WHERE id = ?";
@@ -270,7 +272,7 @@ public class NodeRepository {
     }
 
     /**
-     * Atualiza a fonte (sourceUrl/sourceTitle/sourcePlatform) de um nó pelo ID.
+     * Updates the source (sourceUrl/sourceTitle/sourcePlatform) of a node by ID.
      */
     public void updateSource(UUID id, String sourceUrl, String sourceTitle, String sourcePlatform) {
         String sql = "UPDATE nodes SET source_url = ?, source_title = ?, source_platform = ? WHERE id = ?";
@@ -278,10 +280,10 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna os top N nós por hype_score, considerando apenas os vistos nos
-     * últimos `days` dias. Sem este filtro, o "hot" era cumulativo:
-     * hype_score nunca decai, então o card mais quente era um nó que teve
-     * pico de menções há meses e nunca mais.
+     * Returns the top N nodes by hype_score, considering only those seen in the
+     * last `days` days. Without this filter "hot" was cumulative: hype_score
+     * never decays, so the hottest card was always a node that had peaked months
+     * earlier and never came back.
      */
     public List<Node> findTopByHypeScore(int days, int limit) {
         String sql = """
@@ -295,7 +297,7 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna todos os nós do banco.
+     * Returns all nodes in the database.
      */
     public List<Node> findAll() {
         String sql = "SELECT id, label, category, hype_score, first_seen, last_seen, mention_count FROM nodes ORDER BY hype_score DESC";
@@ -303,32 +305,34 @@ public class NodeRepository {
     }
 
     /**
-     * Garante que a coluna node_id (linkando artigo → tópico) exista na tabela posts.
-     * Chamada uma única vez no startup via {@link #applySchemaMigrations()}.
+     * Ensures the node_id column (linking article -> topic) exists on the posts
+     * table. Called once at startup via {@link #applySchemaMigrations()}.
      */
     private void ensureArticleColumnsExist() {
         try {
             jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS node_id UUID REFERENCES nodes(id) ON DELETE CASCADE;");
             jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_node_url ON posts (node_id, url);");
-            // published_at é a data real de publicação vinda da fonte (HN/Dev.to/Lobsters/SO).
-            // Sem ela, o feed mostrava artigos coletados "hoje" mas publicados há anos.
+            // published_at is the actual publication date at the source (HN/Dev.to/Lobsters/SO).
+            // Without it the feed showed articles collected "today" but published years ago.
             jdbc.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;");
         } catch (Exception e) {
-            // Ignora se já existirem
+            // Ignore if they already exist.
         }
     }
 
     /**
-     * Persiste um artigo associado a um tópico. Idempotente: recolher o mesmo artigo em rodadas
-     * futuras de ingestão não duplica a linha, graças ao índice único (node_id, url).
+     * Persists an article linked to a topic. Idempotent: re-collecting the same
+     * article in future ingestion rounds does not duplicate the row, thanks to
+     * the unique (node_id, url) index.
      */
     public void insertArticle(UUID nodeId, String title, String url, String platform) {
         insertArticle(nodeId, title, url, platform, null);
     }
 
     /**
-     * Sobrecarga que grava também a data de publicação original da fonte. Quando `publishedAt`
-     * é null, a coluna fica NULL e o feed usa created_at como fallback na query.
+     * Overload that also records the original publication date from the source.
+     * When `publishedAt` is null, the column stays NULL and the feed falls back
+     * to created_at in the query.
      */
     public void insertArticle(UUID nodeId, String title, String url, String platform, Instant publishedAt) {
         if (nodeId == null || url == null || url.isBlank()) return;
@@ -338,14 +342,14 @@ public class NodeRepository {
     }
 
     /**
-     * Retorna os artigos mais recentes (últimos N dias), com o tópico associado, para o feed de notícias.
-     * Filtra pela data de publicação real (quando disponível), não pela data de ingestão — senão
-     * artigos antigos coletados hoje aparecem como "fresh".
+     * Returns the most recent articles (last N days) with their associated topic,
+     * for the news feed. Filters by actual publication date (when available), not
+     * by ingestion date — otherwise old articles collected today would look "fresh".
      */
     public List<ArticlePreview> findRecentArticles(int days, int limit) {
-        // Teto duro de 30 dias: mesmo para posts sem published_at (backfill antigo), garante que
-        // o feed não mostre nada além disso. Fica no UNION com o filtro de 'days' para o usuário
-        // poder restringir ainda mais (3D, 7D, etc.) sem ver conteúdo podre.
+        // Hard 30-day ceiling: even for posts without published_at (legacy backfill),
+        // this guarantees the feed never shows anything older. Combined with the user's
+        // `days` filter, it lets them narrow to 3D/7D/etc. without ever seeing stale content.
         String sql = """
                 SELECT p.title, p.url, p.platform, p.published_at, p.created_at, n.label AS node_label, n.category AS node_category
                 FROM posts p

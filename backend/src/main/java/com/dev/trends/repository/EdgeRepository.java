@@ -11,8 +11,8 @@ import java.util.UUID;
 @Repository
 public class EdgeRepository {
 
-    /** Mesmo teto intencional do NodeRepository.GRAPH_QUERY_LIMIT — manter
-     *  consistente para o conjunto (nós, arestas) caber na resposta. */
+    /** Same intentional cap as NodeRepository.GRAPH_QUERY_LIMIT — keeping it
+     *  consistent ensures the (nodes, edges) tuple always fits in the response. */
     private static final int EDGE_QUERY_LIMIT = 500;
 
     private final JdbcTemplate jdbc;
@@ -22,7 +22,7 @@ public class EdgeRepository {
     }
 
     /**
-     * Insere ou incrementa o peso de uma aresta usando a função PL/pgSQL do schema.
+     * Inserts or increments the weight of an edge using the PL/pgSQL function from the schema.
      */
     public UUID upsertEdge(UUID sourceId, UUID targetId, String relationType) {
         String sql = "SELECT upsert_edge(?, ?, ?)";
@@ -30,8 +30,8 @@ public class EdgeRepository {
     }
 
     /**
-     * Retorna todas as arestas cujos nós foram vistos nos últimos N dias,
-     * incluindo os labels de origem e destino para facilitar o frontend.
+     * Returns every edge whose endpoints were seen in the last N days, including
+     * the source and target labels so the frontend doesn't have to join again.
      */
     public List<Edge> findEdgesSince(int days) {
         String sql = """
@@ -65,7 +65,7 @@ public class EdgeRepository {
     }
 
     /**
-     * Retorna todas as arestas do banco com os labels dos nós.
+     * Returns every edge in the database along with the node labels.
      */
     public List<Edge> findAll() {
         String sql = """

@@ -1,46 +1,36 @@
-name: CI/CD — Reticle
+name: CI/CD Reticle
 
-# =============================================================
-# Trigger: push na branch main
-# =============================================================
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
 
-# Variáveis globais de ambiente
 env:
   JAVA_VERSION: "21"
   JAVA_DISTRIBUTION: "temurin"
   NODE_VERSION: "20"
 
-# =============================================================
-# JOB 1: Backend Java — Testes + Deploy no Render
-# =============================================================
 jobs:
   backend-test-and-deploy:
-    name: 🔧 Backend Java — Test & Deploy (Render)
+    name: Backend Java - Test & Deploy (Render)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
 
     steps:
-      # 1. Checkout do código
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura JDK 21 (Temurin = Eclipse Adoptium)
-      - name: ☕ Set up JDK ${{ env.JAVA_VERSION }}
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: ${{ env.JAVA_DISTRIBUTION }}
           cache: maven
 
-      # 3. Cache do repositório Maven local para builds mais rápidos
-      - name: 📦 Cache Maven dependencies
+      - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository
@@ -48,17 +38,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # 4. Compila e executa os testes unitários
-      - name: 🧪 Run tests with Maven
+      - name: Run tests with Maven
         run: mvn verify --batch-mode --no-transfer-progress
         env:
-          # Fornece variáveis mínimas para os testes não falharem por config ausente
           DATABASE_URL: "jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1"
           DB_PASSWORD: "test"
           SPRING_PROFILES_ACTIVE: "test"
 
-      # 5. Upload do relatório de testes como artefato do GitHub Actions
-      - name: 📊 Upload test reports
+      - name: Upload test reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,25 +53,20 @@ jobs:
           path: backend/target/surefire-reports/
           retention-days: 7
 
-      # 6. Validação real do Dockerfile (Dry-Run Build idêntico ao Render)
-      # Garante que a imagem compila 100% sem erros de código/dep antes de acionar produção
-      - name: 🐳 Validate Docker build (Render dry-run)
+      - name: Validate Docker build (Render dry-run)
         run: docker build -t dev-trends-backend:test .
 
-      # 7. Aciona o webhook de deploy do Render (APENAS se os testes e o Docker build passarem)
-      # Configure RENDER_DEPLOY_HOOK_URL nos Secrets do repositório GitHub:
-      # Settings → Secrets and variables → Actions → New repository secret
-      - name: 🚀 Trigger Render Deploy
+      - name: Trigger Render Deploy
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         env:
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "⚠️  RENDER_DEPLOY_HOOK_URL não configurado — pulando deploy no Render."
+            echo "RENDER_DEPLOY_HOOK_URL is not set; skipping Render deploy."
             exit 0
           fi
 
-          echo "Acionando deploy no Render..."
+          echo "Triggering Render deploy..."
           HTTP_STATUS=$(curl --silent --output /dev/null \
             --write-out "%{http_code}" \
             --max-time 30 \
@@ -92,24 +74,21 @@ jobs:
             "$RENDER_DEPLOY_HOOK_URL")
 
           if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
-            echo "✅ Deploy no Render acionado com sucesso (HTTP $HTTP_STATUS)"
+            echo "Render deploy triggered successfully (HTTP $HTTP_STATUS)"
           else
-            echo "❌ Falha ao acionar deploy no Render (HTTP $HTTP_STATUS)"
+            echo "Failed to trigger Render deploy (HTTP $HTTP_STATUS)"
             exit 1
           fi
 
-  # ===========================================================
-  # JOB 2: Frontend Next.js — Build + Deploy na Vercel
-  # ===========================================================
   frontend-build-and-deploy:
-    name: 🎨 Frontend Next.js — Build & Deploy (Vercel)
+    name: Frontend Next.js - Build & Deploy (Vercel)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
 
-    # Secrets ficam no escopo de env com fallback vazio para que
-    # o `if` da step de deploy consiga checá-los sem quebrar o parse do workflow.
+    # Secrets live in job-level env with empty-string fallbacks so the deploy
+    # step's `if` can check them without tripping the workflow-file parse path.
     env:
       NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -117,36 +96,30 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
-      # 1. Checkout do código
-      - name: 📥 Checkout code
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configura Node.js sem exigir package-lock.json
-      - name: 🟢 Set up Node.js ${{ env.NODE_VERSION }}
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # 3. Instala dependências (npm install funciona com ou sem package-lock.json)
-      - name: 📦 Install dependencies
+      - name: Install dependencies
         run: npm install
 
-      # 4. Type-check TypeScript
-      - name: 🔍 TypeScript type check
+      - name: TypeScript type check
         run: npm run type-check
 
-      # 5. Build de produção do Next.js
-      - name: 🏗️ Build Next.js
+      - name: Build Next.js
         run: npm run build
 
-      # 6. Deploy na Vercel via CLI Action (Apenas se o VERCEL_TOKEN estiver configurado)
-      # O amondnet/vercel-action precisa de um link local (.vercel/project.json) ou
-      # que ele mesmo faça o link. Sem isso ele falha em 'Could not retrieve Project
-      # Settings'. Como o comentário abaixo já avisava, a integração nativa do GitHub
-      # na Vercel cuida do deploy — manter os dois só causa corrida. Se a integração
-      # nativa for desligada no futuro, descomentar este passo e adicionar o arquivo
-      # `.vercel/project.json` ao repo.
-      # - name: 🚀 Deploy to Vercel
+      # The amondnet/vercel-action requires a local .vercel link (project.json),
+      # which this repo does not have. Vercel's native GitHub integration already
+      # handles the production deploy, so we keep that and disable this manual
+      # step to avoid the two systems racing each other. If the native
+      # integration is ever turned off, uncomment this block and commit a
+      # `.vercel/project.json` so the action can resolve the project.
+      # - name: Deploy to Vercel
       #   if: github.ref == 'refs/heads/main' && github.event_name == 'push' && env.VERCEL_TOKEN != ''
       #   uses: amondnet/vercel-action@v25
       #   with:
@@ -156,23 +129,20 @@ jobs:
       #     working-directory: ./frontend
       #     vercel-args: "--prod"
 
-  # ===========================================================
-  # JOB 3: Notificação de status (opcional, mas útil)
-  # ===========================================================
   notify-status:
-    name: 📣 Notify Deploy Status
+    name: Notify Deploy Status
     runs-on: ubuntu-latest
     needs: [backend-test-and-deploy, frontend-build-and-deploy]
     if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
-      - name: ✅ Pipeline completed
+      - name: Pipeline completed
         run: |
           BACKEND_STATUS="${{ needs.backend-test-and-deploy.result }}"
           FRONTEND_STATUS="${{ needs.frontend-build-and-deploy.result }}"
 
           echo "============================================"
-          echo "  Reticle — Deploy Summary"
+          echo "  Reticle - Deploy Summary"
           echo "============================================"
           echo "  Backend  (Render): $BACKEND_STATUS"
           echo "  Frontend (Vercel): $FRONTEND_STATUS"

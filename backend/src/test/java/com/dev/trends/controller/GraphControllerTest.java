@@ -108,8 +108,8 @@ class GraphControllerTest {
                         "https://rarehistoricalphotos.com/cocaine-paraphernalia-ads-1970s/",
                         "https://news.ycombinator.com/item?id=42", "hackernews", null));
 
-        // O selo diz "Hacker News"; o link tem que apontar para o Hacker News, não para o site
-        // original da matéria.
+        // The badge says "Hacker News"; the link must point at Hacker News, not the
+        // article's original site.
         mockMvc.perform(get("/api/v1/nodes/" + id + "/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sourcePlatform").value("hackernews"))

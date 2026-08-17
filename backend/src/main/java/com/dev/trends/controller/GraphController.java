@@ -20,8 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Controller REST que expõe os endpoints do grafo de tendências.
- * Configurado para ser consumido pelo frontend na Vercel (CORS habilitado).
+ * REST controller exposing the trend-graph endpoints.
+ * Configured to be consumed by the frontend on Vercel (CORS enabled).
  */
 @RestController
 @CrossOrigin(origins = "*", maxAge = 3600)
@@ -33,17 +33,19 @@ public class GraphController {
     private final JdbcTemplate jdbc;
 
     /**
-     * Rate limit in-memory para /api/v1/ingest: 1 request por chave a cada 5 minutos.
-     * A pipeline dispara ~185 requests externos + 1 chamada LLM (até 60s) por execução,
-     * então em produção (Render free tier, cold start + LLM tier grátis) o ideal é
-     * manter o intervalo longo. O contador é resetado a cada restart do processo —
-     * aceitável porque o caller legítimo é o workflow do GitHub Actions de 6 em 6h.
-     * Map está preenchido com bare longs via AtomicLong para não depender de boxing.
+     * In-memory rate limit for /api/v1/ingest: 1 request per key every 5 minutes.
+     * The pipeline fires ~185 external requests plus one LLM call (up to 60s) per
+     * execution, so in production (Render free tier, cold start + free LLM tier) the
+     * safe play is to keep the interval long. The counter resets on every process
+     * restart — acceptable because the legitimate caller is the GitHub Actions
+     * workflow that runs every 6 hours. The map is populated with bare longs via
+     * AtomicLong to avoid boxing.
      *
-     * <p>{@link #INGEST_RATE_LIMIT_MAX_KEYS} limita o tamanho do mapa: o caller legítimo
-     * é único (GitHub Actions), então em operação normal o mapa tem 1 entrada. Defesa
-     * contra chiavi inventadas por scanners/fuzzers que poderiam crescer o mapa sem
-     * parar — uma vez estourado, limpamos tudo (rate limit é resetado por restart).
+     * <p>{@link #INGEST_RATE_LIMIT_MAX_KEYS} caps the map size: the legitimate caller
+     * is unique (GitHub Actions), so in normal operation the map has a single entry.
+     * This guards against keys invented by scanners/fuzzers that could grow the map
+     * without bound — once the cap is hit we clear everything (the rate limit
+     * resets on restart anyway).
      */
     private static final Duration INGEST_RATE_LIMIT_WINDOW = Duration.ofMinutes(5);
     private static final int INGEST_RATE_LIMIT_MAX_KEYS = 64;
@@ -60,22 +62,22 @@ public class GraphController {
         this.jdbc = jdbc;
     }
 
-    /** Idioma dos resumos: "pt" para português, qualquer outro valor cai no inglês (padrão). */
+    /** Summary language: "pt" for Portuguese, anything else falls back to English (default). */
     private static String normalizeLang(String lang) {
         return lang != null && lang.toLowerCase().startsWith("pt") ? "pt" : "en";
     }
 
     // =========================================================
-    // HEALTH CHECK — exigido pelo Render para verificação de saúde
+    // HEALTH CHECK — required by Render for liveness checks.
     // =========================================================
 
     /**
      * GET /health
-     * Verifica se o serviço está operacional. O Render usa este endpoint
-     * para decidir se o container passou no health check de startup.
-     * Além do sinal "estou rodando", faz um SELECT 1 no banco — sem isso,
-     * o health voltava 200 mesmo com o Supabase indisponível, e a UI
-     * ficava em loop de loading sem nenhum sinal de falha.
+     * Checks whether the service is operational. Render uses this endpoint to decide
+     * whether the container passed its startup health check. Beyond the "I'm running"
+     * signal, it issues a SELECT 1 against the database — without that, the health
+     * endpoint would return 200 even when Supabase was unavailable, leaving the UI
+     * stuck in a loading loop with no sign of failure.
      */
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
@@ -102,13 +104,13 @@ public class GraphController {
     }
 
     // =========================================================
-    // GRAPH DATA — dados principais para o React Flow
+    // GRAPH DATA — main payload for React Flow.
     // =========================================================
 
     /**
      * GET /api/v1/graph?days=7
-     * Retorna o grafo completo (nós + arestas) filtrado pelos últimos N dias.
-     * Formato compatível com React Flow:
+     * Returns the full graph (nodes + edges) filtered by the last N days.
+     * Shape is React Flow compatible:
      * {
      *   "nodes": [{ "id": "uuid", "label": "...", "category": "...", "hypeScore": 5.0 }],
      *   "edges": [{ "id": "uuid", "source": "uuid", "target": "uuid", "label": "USES", "weight": 3 }]
@@ -128,7 +130,7 @@ public class GraphController {
             List<Node> nodes = nodeRepository.findNodesSince(days, normalizeLang(lang));
             List<Edge> edges = edgeRepository.findEdgesSince(days);
 
-            // Formata nós no padrão React Flow
+            // Shape nodes for React Flow.
             List<Map<String, Object>> nodeList = nodes.stream()
                     .map(n -> {
                         Map<String, Object> node = new LinkedHashMap<>();
@@ -147,7 +149,7 @@ public class GraphController {
                     })
                     .toList();
 
-            // Formata arestas no padrão React Flow
+            // Shape edges for React Flow.
             List<Map<String, Object>> edgeList = edges.stream()
                     .map(e -> {
                         Map<String, Object> edge = new LinkedHashMap<>();
@@ -185,13 +187,13 @@ public class GraphController {
     }
 
     // =========================================================
-    // ARTICLES — feed de notícias por tópico
+    // ARTICLES — news feed grouped by topic.
     // =========================================================
 
     /**
      * GET /api/v1/articles?days=7&limit=100
-     * Retorna os artigos mais recentes coletados, cada um linkado ao tópico que menciona,
-     * para o feed de notícias (agrupado por categoria no frontend).
+     * Returns the most recent collected articles, each linked to the topic it mentions,
+     * for the news feed (grouped by category in the frontend).
      */
     @GetMapping("/api/v1/articles")
     public ResponseEntity<Map<String, Object>> getArticles(
@@ -235,15 +237,15 @@ public class GraphController {
     }
 
     // =========================================================
-    // TRENDS — top nós por hype_score
+    // TRENDS — top nodes by hype_score.
     // =========================================================
 
     /**
      * GET /api/v1/trends?days=7&limit=10
-     * Retorna os top N nós (default 10) ordenados por hype_score decrescente,
-     * filtrados por atividade recente (default 7 dias). Sem o filtro de
-     * recência, a métrica era cumulativa e o "tendências quentes" nunca
-     * perdia o card que entrou em alta uma vez.
+     * Returns the top N nodes (default 10) ordered by hype_score descending,
+     * filtered by recent activity (default 7 days). Without the recency filter
+     * the metric was cumulative and "hot trends" never dropped a card that had
+     * once peaked.
      */
     @GetMapping("/api/v1/trends")
     public ResponseEntity<Map<String, Object>> getTrends(
@@ -288,22 +290,22 @@ public class GraphController {
     }
 
     // =========================================================
-    // INGESTÃO MANUAL — endpoint para acionar o pipeline via HTTP
+    // MANUAL INGEST — endpoint to trigger the pipeline over HTTP.
     // =========================================================
 
     /**
      * POST /api/v1/ingest
-     * Aciona manualmente o pipeline de ingestão multi-fonte.
+     * Manually triggers the multi-source ingestion pipeline.
      *
-     * Falha FECHADA: o endpoint só aceita request se INGESTION_API_KEY estiver
-     * configurado no ambiente. Sem chave, /ingest é um convite aberto para que
-     * qualquer um dispare a pipeline (~185 HTTP + 1 LLM) e gaste o budget da
-     * chave. Antes a autenticação era silenciosamente pulada quando a env var
-     * estava ausente.
+     * Fail-closed: the endpoint only accepts a request when INGESTION_API_KEY is
+     * configured in the environment. Without the key, /ingest would be an open
+     * invitation for anyone to fire the pipeline (~185 HTTP calls + 1 LLM) and
+     * burn through the API key budget. Previously the auth check was silently
+     * skipped when the env var was missing.
      *
-     * Rate limit: 1 request por chave a cada 5 min, em memória. Chave do
-     * caller é o X-API-Key fornecido (anônimo vira "anonymous" — o que vai
-     * ser rejeitado pelo fail-closed na prática).
+     * Rate limit: 1 request per key every 5 minutes, in memory. The caller's key
+     * is the X-API-Key header (anonymous calls become "anonymous" — which the
+     * fail-closed check rejects anyway).
      */
     @PostMapping("/api/v1/ingest")
     public ResponseEntity<Map<String, Object>> triggerIngestion(
@@ -322,10 +324,10 @@ public class GraphController {
         long now = System.currentTimeMillis();
         long windowMs = INGEST_RATE_LIMIT_WINDOW.toMillis();
 
-        // Guarda contra crescimento ilimitado do mapa (caller legítimo é único;
-        // scanners inventando chaves poderiam lotar a memória). Atingiu o teto,
-        // descartamos tudo: o rate limit por chave volta a zero, mas o atacante
-        // também perde o estado.
+        // Guard against unbounded map growth (the legitimate caller is unique;
+        // scanners inventing keys could exhaust memory). Once the cap is hit we
+        // drop everything: the per-key rate limit resets to zero, but the
+        // attacker loses their state too.
         if (lastIngestByKey.size() >= INGEST_RATE_LIMIT_MAX_KEYS) {
             lastIngestByKey.clear();
         }
@@ -346,10 +348,11 @@ public class GraphController {
         try {
             var result = graphExtractionService.runIngestionPipeline();
 
-            // Sem isto a rodada responde "success" mesmo quando o LLM falhou e a extração caiu
-            // na lista fixa de palavras-chave — foi assim que a curadoria ficou dias parada
-            // sem ninguém perceber. llmError agora viaja dentro do ExtractionResult,
-            // então requests concorrentes não se sobrescrevem.
+            // Without this the run would respond "success" even when the LLM failed
+            // and extraction fell back to the keyword list — that's how curation
+            // sat stale for days without anyone noticing. llmError now travels
+            // inside the ExtractionResult, so concurrent requests don't clobber
+            // each other.
             String llmError = result.llmError();
 
             Map<String, Object> body = new LinkedHashMap<>();
@@ -369,13 +372,13 @@ public class GraphController {
     }
 
     // =========================================================
-    // NODE SUMMARY — resumo técnico por demanda
+    // NODE SUMMARY — on-demand technical summary.
     // =========================================================
 
     /**
      * GET /api/v1/nodes/{id}/summary
-     * Retorna ou gera dinamicamente o resumo técnico de um nó específico.
-     * Se o nó não tiver sourceUrl, busca ao vivo via HN Algolia e persiste o resultado.
+     * Returns or dynamically generates the technical summary for a specific node.
+     * If the node has no sourceUrl, it searches HN Algolia live and persists the result.
      */
     @GetMapping("/api/v1/nodes/{id}/summary")
     public ResponseEntity<Map<String, Object>> getNodeSummary(
@@ -404,10 +407,10 @@ public class GraphController {
         if (sourceUrl == null || sourceUrl.isBlank()) {
             var found = graphExtractionService.findLiveSource(node.getLabel());
             if (found != null) {
-                // discussionUrl, não url: a plataforma gravada é "hackernews" e o frontend
-                // confia nela para o selo da fonte. Gravar o link externo da matéria fazia o
-                // card dizer "Hacker News" apontando para o site original (ex.: um blog de
-                // fotos históricas), como se o tópico tivesse saído de lá.
+                // Use discussionUrl, not url: the recorded platform is "hackernews" and the
+                // frontend trusts it for the source badge. Storing the external article
+                // URL made the card say "Hacker News" while pointing at the original site
+                // (e.g. a historical-photos blog), as if the topic originated there.
                 sourceUrl = found.discussionUrl();
                 sourceTitle = found.title();
                 sourcePlatform = found.platform();

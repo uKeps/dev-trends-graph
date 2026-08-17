@@ -1,7 +1,7 @@
 package com.dev.trends.model;
 
 /**
- * Record que representa um nó a ser criado/atualizado no grafo com resumo e link de origem.
+ * Record representing a node to be created or updated in the graph, with summary and source link.
  */
 public record NodeRequest(
         String label,

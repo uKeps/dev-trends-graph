@@ -16,7 +16,7 @@ frontend/dist/
 frontend/build/
 frontend/tsconfig.tsbuildinfo
 
-# Variáveis de ambiente sensíveis (NUNCA comitar)
+# Sensitive environment variables (NEVER commit).
 .env
 .env.local
 .env.*.local
