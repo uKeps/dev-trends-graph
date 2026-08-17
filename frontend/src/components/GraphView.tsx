@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -26,6 +27,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { I18nContext, categoryLabel, useLang, useT, type Lang } from "@/lib/i18n";
 import { useUrlState, URL_PARSERS } from "@/lib/useUrlState";
+import { useFocusTrap } from "@/lib/useFocusTrap";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -256,8 +258,59 @@ export default function GraphView() {
     setSelectedNode(null);
   }, [lang]);
 
+  // Global keyboard shortcuts:
+  //   /         -> focus the search input
+  //   Escape    -> close the modal, or clear the search query if the modal is already closed
+  //   g c / g g / g n -> switch view mode (columns / cards / news)
+  // Skip when the user is typing in an input/textarea/contenteditable.
+  useEffect(() => {
+    const isTyping = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return true;
+      return target.isContentEditable;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target)) return;
+      if (e.key === "/") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (selectedNode) {
+          setSelectedNode(null);
+        } else if (searchQuery) {
+          setSearchQuery("");
+        }
+        return;
+      }
+      if (e.key === "g") {
+        const next = (ev: KeyboardEvent) => {
+          window.removeEventListener("keydown", next);
+          if (isTyping(ev.target)) return;
+          const map: Record<string, typeof viewMode> = { c: "columns", g: "cards", n: "news" };
+          if (map[ev.key]) {
+            ev.preventDefault();
+            setViewMode(map[ev.key]);
+          }
+        };
+        window.addEventListener("keydown", next, { once: true });
+        window.setTimeout(() => window.removeEventListener("keydown", next), 1500);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedNode, searchQuery, setViewMode]);
+
   // UI filters
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const modalPanelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap<HTMLDivElement>(selectedNode != null, {
+    initialFocus: () => modalPanelRef.current?.querySelector<HTMLElement>(".modal-close") ?? null,
+  });
   const [selectedCategory, setSelectedCategory] = useUrlState<string>(
     "cat", "ALL",
     URL_PARSERS.oneOf("ALL", "Model", "Framework", "Tool", "Language", "Platform", "Concept")
@@ -504,7 +557,7 @@ export default function GraphView() {
 
           <div className="header-controls">
             <div className="search">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#55585E" strokeWidth="2">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#55585E" strokeWidth="2" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.35-4.35" />
               </svg>
               <input
@@ -512,37 +565,42 @@ export default function GraphView() {
                 placeholder={t.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label={t.searchPlaceholder}
+                ref={searchInputRef}
               />
               {searchQuery && (
-                <button className="search-clear" onClick={() => setSearchQuery("")}>×</button>
+                <button className="search-clear" onClick={() => setSearchQuery("")} aria-label={t.searchPlaceholder}>×</button>
               )}
             </div>
 
             <div className="toggle-switch">
-              <span>{t.connectOnHover}</span>
-              <div
+              <span id="connect-on-hover-label">{t.connectOnHover}</span>
+              <button
+                role="switch"
+                aria-checked={showAllEdges}
+                aria-labelledby="connect-on-hover-label"
                 className={`switch-track ${showAllEdges ? "on" : ""}`}
                 onClick={() => setShowAllEdges((v) => !v)}
               >
-                <div className="switch-thumb" />
-              </div>
+                <span className="switch-thumb" aria-hidden="true" />
+              </button>
             </div>
 
-            <div className="segmented">
-              <button className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>{t.viewColumns}</button>
-              <button className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>{t.viewGrid}</button>
-              <button className={viewMode === "news" ? "active" : ""} onClick={() => setViewMode("news")}>{t.viewNews}</button>
+            <div className="segmented" role="tablist" aria-label={t.viewModeAria}>
+              <button role="tab" aria-selected={viewMode === "columns"} className={viewMode === "columns" ? "active" : ""} onClick={() => setViewMode("columns")}>{t.viewColumns}</button>
+              <button role="tab" aria-selected={viewMode === "cards"} className={viewMode === "cards" ? "active" : ""} onClick={() => setViewMode("cards")}>{t.viewGrid}</button>
+              <button role="tab" aria-selected={viewMode === "news"} className={viewMode === "news" ? "active" : ""} onClick={() => setViewMode("news")}>{t.viewNews}</button>
             </div>
 
-            <div className="segmented">
+            <div className="segmented" role="tablist" aria-label={t.periodAria}>
               {[3, 7, 14, 30].map((d) => (
-                <button key={d} className={days === d ? "active" : ""} onClick={() => setDays(d)}>{d}D</button>
+                <button key={d} role="tab" aria-selected={days === d} className={days === d ? "active" : ""} onClick={() => setDays(d)}>{d}D</button>
               ))}
             </div>
 
-            <div className="segmented">
+            <div className="segmented" role="tablist" aria-label={t.languageAria}>
               {(["en", "pt"] as Lang[]).map((l) => (
-                <button key={l} className={lang === l ? "active" : ""} onClick={() => handleLangChange(l)}>{l.toUpperCase()}</button>
+                <button key={l} role="tab" aria-selected={lang === l} className={lang === l ? "active" : ""} onClick={() => handleLangChange(l)}>{l.toUpperCase()}</button>
               ))}
             </div>
           </div>
@@ -705,19 +763,26 @@ export default function GraphView() {
           <>
             <div className="modal-backdrop" onClick={() => setSelectedNode(null)} />
 
-            <div className="modal-panel">
+            <div
+              className="modal-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="modal-title"
+              aria-describedby="modal-desc"
+              ref={modalPanelRef}
+            >
               <div className="modal-header">
                 <div style={{ flex: 1 }}>
                   <div className="modal-tags">
                     <span className="tag">{categoryLabel(t, selectedNode.category)}</span>
                     <span className="tag">{platformLabel}</span>
                   </div>
-                  <h2 className="modal-title">{selectedNode.label}</h2>
+                  <h2 id="modal-title" className="modal-title">{selectedNode.label}</h2>
                 </div>
-                <button className="modal-close" onClick={() => setSelectedNode(null)}>×</button>
+                <button className="modal-close" onClick={() => setSelectedNode(null)} aria-label={t.close}>×</button>
               </div>
 
-              <div style={{ marginTop: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div id="modal-desc" style={{ marginTop: "18px", display: "flex", flexDirection: "column", gap: "14px" }}>
                 <div className="modal-section">
                   <div className="modal-section-label">{t.summary}</div>
                   {summaryLoading ? (
