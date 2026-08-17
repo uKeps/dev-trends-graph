@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import "@xyflow/react/dist/style.css";
 import { I18nContext, categoryLabel, useLang, useT, type Lang } from "@/lib/i18n";
 import { useUrlState, URL_PARSERS } from "@/lib/useUrlState";
 import { useFocusTrap } from "@/lib/useFocusTrap";
+import WatchlistButton from "@/components/WatchlistButton";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -572,6 +574,9 @@ export default function GraphView() {
               <h1>Reticle</h1>
               <p>{t.tagline}</p>
             </div>
+            <Link href="/watchlist" className="watchlist-link" aria-label={t.watchlist}>
+              {t.watchlist}
+            </Link>
           </div>
 
           <div className="header-controls">
@@ -707,9 +712,12 @@ export default function GraphView() {
                       <div key={node.id} className="card" onClick={() => setSelectedNode(node)}>
                         <div className="card-top">
                           <span className="tag">{categoryLabel(t, node.category)}</span>
-                          <div className="meter">
-                            <Bars val={node.hypeScore} />
-                            <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
+                          <div className="card-top-right">
+                            <WatchlistButton id={node.id} label={node.label} category={node.category} />
+                            <div className="meter">
+                              <Bars val={node.hypeScore} />
+                              <span className="meter-val">{node.hypeScore.toFixed(1)}</span>
+                            </div>
                           </div>
                         </div>
                         <div className="card-title">{node.label}</div>

@@ -33,6 +33,10 @@ export const dict = {
     viewModeAria: "View mode",
     periodAria: "Time period",
     languageAria: "Language",
+    watchlist: "Watchlist",
+    watchlistEmpty: "Star any technology on the home page to add it to your watchlist.",
+    watchlistTitle: "Your watchlist",
+    backToMap: "Back to the trend map",
     categories: {
       Model: "Model",
       Framework: "Framework",
@@ -72,6 +76,10 @@ export const dict = {
     viewModeAria: "Modo de visualização",
     periodAria: "Período",
     languageAria: "Idioma",
+    watchlist: "Watchlist",
+    watchlistEmpty: "Marque uma tecnologia na página inicial para adicioná-la à sua watchlist.",
+    watchlistTitle: "Sua watchlist",
+    backToMap: "Voltar para o mapa de tendências",
     categories: {
       Model: "Modelo",
       Framework: "Framework",
