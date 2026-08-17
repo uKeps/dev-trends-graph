@@ -463,4 +463,59 @@ public class GraphController {
                 .header("Cache-Control", "max-age=300")
                 .body(body);
     }
+
+    // =========================================================
+    // NODE ARTICLES — recent mentions for the topic page.
+    // =========================================================
+
+    /**
+     * GET /api/v1/nodes/{id}/articles?days=30&limit=20
+     * Returns the recent articles that mentioned the topic, used by the
+     * SSR topic page to render a "who cited this" timeline. Empty when the
+     * node has no linked articles; 404 when the node itself does not exist
+     * (so the topic page can decide between "missing" and "no activity").
+     */
+    @GetMapping("/api/v1/nodes/{id}/articles")
+    public ResponseEntity<Map<String, Object>> getNodeArticles(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "30") int days,
+            @RequestParam(defaultValue = "20") int limit) {
+
+        if (days < 1 || days > 90) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Query parameter 'days' must be between 1 and 90."));
+        }
+        if (limit < 1 || limit > 100) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Query parameter 'limit' must be between 1 and 100."));
+        }
+        if (nodeRepository.findById(id, "en").isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        List<ArticlePreview> articles = nodeRepository.findRecentArticlesByNode(id, days, limit);
+
+        List<Map<String, Object>> list = articles.stream()
+                .map(a -> {
+                    Map<String, Object> article = new LinkedHashMap<>();
+                    article.put("title", a.title());
+                    article.put("url", a.url());
+                    article.put("platform", a.platform());
+                    article.put("publishedAt", a.publishedAt() != null ? a.publishedAt().toString() : null);
+                    article.put("createdAt", a.createdAt() != null ? a.createdAt().toString() : null);
+                    article.put("nodeLabel", a.nodeLabel());
+                    article.put("nodeCategory", a.nodeCategory());
+                    return article;
+                })
+                .toList();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("nodeId", id.toString());
+        body.put("articles", list);
+        body.put("count", list.size());
+        body.put("generatedAt", Instant.now().toString());
+        return ResponseEntity.ok()
+                .header("Cache-Control", "max-age=300")
+                .body(body);
+    }
 }

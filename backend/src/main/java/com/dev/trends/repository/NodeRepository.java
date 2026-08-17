@@ -302,6 +302,40 @@ public class NodeRepository {
     }
 
     /**
+     * Returns the most recent articles linked to a specific node, ordered by
+     * actual publication date descending. The 30-day ceiling from
+     * {@link #findRecentArticles} still applies — a topic page should never
+     * show articles older than that.
+     *
+     * <p>Empty result when the node has no linked articles (e.g. a brand new
+     * topic that the LLM extracted from a single batch). The caller treats
+     * this as "no recent activity" rather than "node does not exist" — the
+     * node's existence is checked separately.
+     */
+    public List<ArticlePreview> findRecentArticlesByNode(UUID nodeId, int days, int limit) {
+        if (nodeId == null) return List.of();
+        String sql = """
+                SELECT p.title, p.url, p.platform, p.published_at, p.created_at, n.label AS node_label, n.category AS node_category
+                FROM posts p
+                JOIN nodes n ON p.node_id = n.id
+                WHERE p.node_id = ?
+                  AND COALESCE(p.published_at, p.created_at) >= NOW() - (? || ' days')::INTERVAL
+                  AND COALESCE(p.published_at, p.created_at) >= NOW() - INTERVAL '30 days'
+                ORDER BY p.published_at DESC NULLS LAST
+                LIMIT ?
+                """;
+        return jdbc.query(sql, (rs, rowNum) -> new ArticlePreview(
+                rs.getString("title"),
+                rs.getString("url"),
+                rs.getString("platform"),
+                rs.getObject("published_at", OffsetDateTime.class),
+                rs.getObject("created_at", OffsetDateTime.class),
+                rs.getString("node_label"),
+                rs.getString("node_category")
+        ), nodeId, days, limit);
+    }
+
+    /**
      * Returns the distinct {@code category} values currently present in {@code nodes}
      * along with how many nodes fall into each. Ordered by descending count so the
      * dominant categories surface first. Drives the {@code GET /api/v1/categories}
