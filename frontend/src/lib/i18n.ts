@@ -37,6 +37,7 @@ export const dict = {
     watchlistEmpty: "Star any technology on the home page to add it to your watchlist.",
     watchlistTitle: "Your watchlist",
     backToMap: "Back to the trend map",
+    rising: "Rising",
     categories: {
       Model: "Model",
       Framework: "Framework",
@@ -80,6 +81,7 @@ export const dict = {
     watchlistEmpty: "Marque uma tecnologia na página inicial para adicioná-la à sua watchlist.",
     watchlistTitle: "Sua watchlist",
     backToMap: "Voltar para o mapa de tendências",
+    rising: "Em alta",
     categories: {
       Model: "Modelo",
       Framework: "Framework",

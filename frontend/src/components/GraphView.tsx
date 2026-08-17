@@ -481,15 +481,40 @@ export default function GraphView() {
     setEdges(buildEdges(rawApiEdges, hoveredNodeId, showAllEdges));
   }, [hoveredNodeId, showAllEdges, rawApiEdges, buildEdges, setNodes, setEdges]);
 
-  // ── Filters (search, category, relevance) ─────────────────────────────────
+  // ── Rising detection ────────────────────────────────────────────────────
+  // A node counts as "rising" when it first appeared recently and has already
+  // accumulated enough traction. The window scales with the active period
+  // (3D window: 1-day recency, 30D window: 7-day recency) so the badge keeps
+  // its meaning on both short and long views.
+  const risingThresholdMs = useMemo(() => {
+    const recencyDays = Math.max(1, Math.floor(days / 4));
+    return Date.now() - recencyDays * 24 * 60 * 60 * 1000;
+  }, [days]);
+  const isRising = useCallback(
+    (node: ApiNode) => {
+      if (!node.firstSeen) return false;
+      const firstSeenMs = new Date(node.firstSeen).getTime();
+      return firstSeenMs >= risingThresholdMs && node.hypeScore >= 3.0;
+    },
+    [risingThresholdMs],
+  );
+
+  // ── Filters (search, category, relevance, rising) ────────────────────────
+  const [risingOnly, setRisingOnly] = useUrlState<boolean>(
+    "rising", false,
+    (raw) => raw === "1" || raw === "true",
+    (v) => (v ? "1" : ""),
+  );
+
   const filteredApiNodes = useMemo(() => {
     return rawApiNodes.filter((node) => {
       const matchesSearch = searchQuery === "" || node.label.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCat = selectedCategory === "ALL" || node.category === selectedCategory;
       const matchesHype = node.hypeScore >= minHype;
-      return matchesSearch && matchesCat && matchesHype;
+      const matchesRising = !risingOnly || isRising(node);
+      return matchesSearch && matchesCat && matchesHype && matchesRising;
     });
-  }, [rawApiNodes, searchQuery, selectedCategory, minHype]);
+  }, [rawApiNodes, searchQuery, selectedCategory, minHype, risingOnly, isRising]);
 
   // ── Grouping by category (curation panel of the "Columns" mode) ─────────
   const groupedByCategory = useMemo(() => {
@@ -679,6 +704,16 @@ export default function GraphView() {
             </button>
           ))}
         </div>
+
+        <div className="filter-group rising-group">
+          <button
+            className={`pill pill-rising ${risingOnly ? "active" : ""}`}
+            onClick={() => setRisingOnly(!risingOnly)}
+            aria-pressed={risingOnly}
+          >
+            <span aria-hidden="true">{risingOnly ? "▲" : "△"}</span> {t.rising}
+          </button>
+        </div>
       </div>
 
       <div className="board-area">
@@ -720,7 +755,14 @@ export default function GraphView() {
                             </div>
                           </div>
                         </div>
-                        <div className="card-title">{node.label}</div>
+                        <div className="card-title">
+                          {node.label}
+                          {isRising(node) && (
+                            <span className="rising-badge" aria-label={t.rising}>
+                              ▲ {t.rising}
+                            </span>
+                          )}
+                        </div>
                         <div className="card-bottom">
                           <span className="card-meta">{node.mentionCount}+ {t.discussions}</span>
                           <span className="card-link">{t.study} →</span>

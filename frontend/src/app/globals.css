@@ -945,3 +945,31 @@ input:focus-visible,
   color: var(--accent-blue);
   border-color: var(--accent-blue);
 }
+
+/* ---------- RISING (PR-D5) ---------- */
+.pill-rising {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pill-rising.active {
+  color: var(--bg);
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+}
+.rising-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  border-radius: var(--radius);
+  vertical-align: middle;
+}
