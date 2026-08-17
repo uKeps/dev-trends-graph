@@ -541,7 +541,7 @@ export default function GraphView() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <I18nContext.Provider value={t}>
-    <div style={{ width: "100vw", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100vw", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
       <header className="app-header">
         <div className="header-row">
           <div className="brand">
