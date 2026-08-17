@@ -337,11 +337,11 @@ export default function GraphView() {
   const [viewMode, setViewMode] = useUrlState<"columns" | "cards" | "news">(
     "view", "columns", URL_PARSERS.oneOf("columns", "cards", "news")
   );
-  const [platform, setPlatform] = useUrlState<string | null>(
-    "platform", null,
+  const [platform, setPlatform] = useUrlState<string>(
+    "platform", "",
     (raw) => {
       const lower = raw.toLowerCase();
-      return PLATFORMS.some((p) => p.id === lower) ? lower : null;
+      return PLATFORMS.some((p) => p.id === lower) ? lower : "";
     },
   );
 
@@ -432,7 +432,7 @@ export default function GraphView() {
   }, []);
 
   // ── Fetches data from the API ─────────────────────────────────────────────
-  const fetchGraphData = useCallback(async (d: number, p: string | null) => {
+  const fetchGraphData = useCallback(async (d: number, p: string) => {
     setLoading(true);
     setError(null);
     try {
@@ -465,6 +465,7 @@ export default function GraphView() {
   useEffect(() => {
     fetchGraphData(days, platform);
   }, [days, platform, fetchGraphData]);
+
 
   // Recomputes nodes and edges on hover or when the web toggle changes
   useEffect(() => {
@@ -500,11 +501,12 @@ export default function GraphView() {
   );
 
   // ── Filters (search, category, relevance, rising) ────────────────────────
-  const [risingOnly, setRisingOnly] = useUrlState<boolean>(
-    "rising", false,
-    (raw) => raw === "1" || raw === "true",
-    (v) => (v ? "1" : ""),
+  const [risingOnlyRaw, setRisingOnlyRaw] = useUrlState<string>(
+    "rising", "",
+    (raw) => (raw === "1" || raw === "true") ? "1" : "",
+    (v) => v,
   );
+  const risingOnly = risingOnlyRaw === "1";
 
   const filteredApiNodes = useMemo(() => {
     return rawApiNodes.filter((node) => {
@@ -688,8 +690,8 @@ export default function GraphView() {
         <div className="filter-group platform-group">
           <span className="filter-label">{t.source}</span>
           <button
-            className={`pill ${platform == null ? "active" : ""}`}
-            onClick={() => setPlatform(null)}
+            className={`pill ${platform === "" ? "active" : ""}`}
+            onClick={() => setPlatform("")}
           >
             {t.all}
           </button>
@@ -708,7 +710,7 @@ export default function GraphView() {
         <div className="filter-group rising-group">
           <button
             className={`pill pill-rising ${risingOnly ? "active" : ""}`}
-            onClick={() => setRisingOnly(!risingOnly)}
+            onClick={() => setRisingOnlyRaw(risingOnly ? "" : "1")}
             aria-pressed={risingOnly}
           >
             <span aria-hidden="true">{risingOnly ? "▲" : "△"}</span> {t.rising}
